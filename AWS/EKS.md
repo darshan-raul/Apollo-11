@@ -58,13 +58,45 @@ You pay **$0.10 per hour for each Amazon EKS cluster** that you create. You can 
 - If you are using AWS Fargate, pricing is calculated based on the vCPU and memory resources used from the time you start to download your container image until the Amazon EKS pod terminates, rounded up to the nearest second. A minimum charge of one minute applies
 
 
+## Control Plane
+
+- The control plane **runs in an account managed by AWS**, 
+- the Kubernetes API is exposed via the Amazon EKS endpoint associated with your cluster. 
+- Each Amazon EKS cluster control plane is **single-tenant and unique**, and runs on its own set of Amazon EC2 instances.
+- All of the data stored by the etcd nodes and associated Amazon EBS volumes is **encrypted using AWS KMS.**
+- provisioned across multiple Availability Zones and 
+- fronted by an Elastic Load Balancing Network Load Balancer
+- provisions elastic network interfaces in your VPC subnets to provide connectivity from the control plane instances to the worker nodes in client VPC ((for example, to support kubectl exec , logs , and proxy data flows)
+- Amazon EKS nodes run in your AWS account and connect to your cluster's control plane via the API server endpoint and a certificate file that is created for your cluster.
 
 
+![control plane](./images/eks-controlplane.png)
+
+## Cluster creation
+
+> Cluster provisioning takes several minutes (close to 10-15 minutes)
+
+When an Amazon EKS cluster is created, the IAM entity (user or role) that creates the cluster is added to the Kubernetes RBAC authorization table as the administrator (with system:masters permissions). Initially, only that IAM user can make calls to the Kubernetes API server using kubectl. 
+
+As a best practice, ensure that an IAM role is added to the aws-auth ConfigMap. This ensures that a cluster can be deleted after the creating user has been deleted. If you are in this situation and cannot delete a cluster, see this article to resolvebrazi.
+
+## Cluster updation:
+
+## Gotchas:
+- Because Amazon EKS runs a highly available control plane, you c**an update only one minor version at a time.**
+- The Kubernetes minor version of the managed and Fargate nodes in your cluster must be the same as the version of your control plane's current version before you update your control plane to a new Kubernetes version. For example, if your control plane is running version 1.20 and any of your nodes are running version 1.19, update your nodes to version 1.20 before updating your control plane's Kubernetes version to 1.21. 
+- Even though Amazon EKS runs a highly available control plane, you might experience minor service interruptions during an update.
 
 
+## Secret KMS Encryption
 
+There is a secretsEncryption option that requires an existing AWS KMS key in AWS Key Management Service (AWS KMS). 
 
+> If you create a cluster using a config file with the secretsEncryption option and the KMS key that you use is ever deleted, then there is no path to recovery for the cluster. 
 
+The KMS key must be symmetric, created in the same Region as the cluster, and if the KMS key was created in a different account, the user must have access to the KMS key. 
+
+======== extra
 
 
 - Can pause and resume deployments
