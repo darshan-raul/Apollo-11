@@ -1,5 +1,6 @@
 #!/bin/bash
-# Verify Stage 5: ~70 checks covering namespaces, SAs, ConfigMap, Secret,
+# Verify Stage 5: runtime and packaging checks covering namespaces, SAs,
+# ConfigMap, Secret,
 # 3 Postgres StatefulSets + 1 Redis StatefulSet, 6 app Deployments +
 # frontend Deployment, 2 PDBs, 3 seed Jobs, GatewayClass, Gateway, 6
 # HTTPRoutes, ReferenceGrant, MetalLB IPAddressPool, and the chart's
@@ -44,6 +45,15 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 
+case "$MODE" in
+    auto|helm|kustomize) ;;
+    *) echo -e "${RED}Invalid mode '$MODE' (expected auto, helm, or kustomize).${NC}"; exit 1 ;;
+esac
+case "$ENV" in
+    dev|staging|prod) ;;
+    *) echo -e "${RED}Invalid environment '$ENV' (expected dev, staging, or prod).${NC}"; exit 1 ;;
+esac
+
 # Auto-detect mode
 if [[ "$MODE" == "auto" ]]; then
     if helm list -n apollo-airlines-apps 2>/dev/null | grep -q apollo11; then
@@ -57,10 +67,7 @@ if [[ "$MODE" == "auto" ]]; then
     echo "Auto-detected mode: $MODE"
 fi
 
-# Some checks (Envoy, MetalLB) only apply to helm mode
-if [[ "$MODE" == "kustomize" ]]; then
-    GATEWAY_EXPECTED=false
-fi
+# Both packaging modes install the same Envoy Gateway + MetalLB access stack.
 
 # ---------------------------------------------------------------------------
 # Namespaces
@@ -181,6 +188,32 @@ for dep in identity flight booking search notification; do
         fail "deployment/$dep not ready (ready=$ready)"
     fi
 done
+for probe in startupProbe livenessProbe readinessProbe; do
+    path=$(kubectl get deployment frontend -n apollo-airlines-ui -o jsonpath="{.spec.template.spec.containers[0].$probe.httpGet.path}" 2>/dev/null || echo "")
+    if [[ -n "$path" && "$path" == "/healthz/"* ]]; then
+        pass "deployment/frontend $probe path=$path"
+    else
+        fail "deployment/frontend $probe missing or wrong path ($path)"
+    fi
+done
+
+step "StatefulSet probes (liveness + readiness, no startup probe)"
+for sts in identity-db flight-db booking-db redis; do
+    for probe in livenessProbe readinessProbe; do
+        command=$(kubectl get statefulset "$sts" -n apollo-airlines-apps -o jsonpath="{.spec.template.spec.containers[0].$probe.exec.command[0]}" 2>/dev/null || echo "")
+        if [[ -n "$command" ]]; then
+            pass "statefulset/$sts $probe command=$command"
+        else
+            fail "statefulset/$sts $probe missing"
+        fi
+    done
+    startup=$(kubectl get statefulset "$sts" -n apollo-airlines-apps -o jsonpath='{.spec.template.spec.containers[0].startupProbe}' 2>/dev/null || echo "")
+    if [[ -z "$startup" || "$startup" == "<nil>" || "$startup" == "null" ]]; then
+        pass "statefulset/$sts has no startupProbe"
+    else
+        fail "statefulset/$sts unexpectedly has startupProbe"
+    fi
+done
 
 # ---------------------------------------------------------------------------
 # Frontend Deployment
@@ -211,21 +244,34 @@ done
 # ---------------------------------------------------------------------------
 # Resources (Guaranteed QoS — requests == limits)
 # ---------------------------------------------------------------------------
-step "Resources: requests == limits (Guaranteed QoS) on 6 apps"
-for dep in identity flight booking search notification; do
-    reqCpu=$(kubectl get deployment "$dep" -n apollo-airlines-apps -o jsonpath='{.spec.template.spec.containers[0].resources.requests.cpu}' 2>/dev/null || echo "")
-    limCpu=$(kubectl get deployment "$dep" -n apollo-airlines-apps -o jsonpath='{.spec.template.spec.containers[0].resources.limits.cpu}' 2>/dev/null || echo "")
-    if [[ -n "$reqCpu" && "$reqCpu" == "$limCpu" ]]; then
-        pass "deployment/$dep CPU req=lim=$reqCpu"
+step "Resources: CPU and memory requests == limits on all 10 workloads"
+for entry in \
+    "deployment:apollo-airlines-apps:identity" \
+    "deployment:apollo-airlines-apps:flight" \
+    "deployment:apollo-airlines-apps:booking" \
+    "deployment:apollo-airlines-apps:search" \
+    "deployment:apollo-airlines-apps:notification" \
+    "deployment:apollo-airlines-ui:frontend" \
+    "statefulset:apollo-airlines-apps:identity-db" \
+    "statefulset:apollo-airlines-apps:flight-db" \
+    "statefulset:apollo-airlines-apps:booking-db" \
+    "statefulset:apollo-airlines-apps:redis"; do
+    kind="${entry%%:*}"; remainder="${entry#*:}"; ns="${remainder%%:*}"; name="${remainder##*:}"
+    req_cpu=$(kubectl get "$kind" "$name" -n "$ns" -o jsonpath='{.spec.template.spec.containers[0].resources.requests.cpu}' 2>/dev/null || echo "")
+    lim_cpu=$(kubectl get "$kind" "$name" -n "$ns" -o jsonpath='{.spec.template.spec.containers[0].resources.limits.cpu}' 2>/dev/null || echo "")
+    req_mem=$(kubectl get "$kind" "$name" -n "$ns" -o jsonpath='{.spec.template.spec.containers[0].resources.requests.memory}' 2>/dev/null || echo "")
+    lim_mem=$(kubectl get "$kind" "$name" -n "$ns" -o jsonpath='{.spec.template.spec.containers[0].resources.limits.memory}' 2>/dev/null || echo "")
+    if [[ -n "$req_cpu" && "$req_cpu" == "$lim_cpu" && -n "$req_mem" && "$req_mem" == "$lim_mem" ]]; then
+        pass "$kind/$name Guaranteed resources cpu=$req_cpu memory=$req_mem"
     else
-        fail "deployment/$dep CPU req=$reqCpu lim=$limCpu (expected equal)"
+        fail "$kind/$name resource mismatch cpu=$req_cpu/$lim_cpu memory=$req_mem/$lim_mem"
     fi
 done
 
 # ---------------------------------------------------------------------------
 # terminationGracePeriodSeconds
 # ---------------------------------------------------------------------------
-step "terminationGracePeriodSeconds (30s on apps)"
+step "terminationGracePeriodSeconds (30s apps, 60s data workloads)"
 for dep in identity flight booking search notification; do
     grace=$(kubectl get deployment "$dep" -n apollo-airlines-apps -o jsonpath='{.spec.template.spec.terminationGracePeriodSeconds}' 2>/dev/null || echo "")
     if [[ "$grace" == "30" ]]; then
@@ -234,44 +280,132 @@ for dep in identity flight booking search notification; do
         fail "deployment/$dep terminationGracePeriodSeconds=$grace (expected 30)"
     fi
 done
+grace=$(kubectl get deployment frontend -n apollo-airlines-ui -o jsonpath='{.spec.template.spec.terminationGracePeriodSeconds}' 2>/dev/null || echo "")
+if [[ "$grace" == "30" ]]; then pass "deployment/frontend terminationGracePeriodSeconds=30"; else fail "deployment/frontend terminationGracePeriodSeconds=$grace (expected 30)"; fi
+for sts in identity-db flight-db booking-db redis; do
+    grace=$(kubectl get statefulset "$sts" -n apollo-airlines-apps -o jsonpath='{.spec.template.spec.terminationGracePeriodSeconds}' 2>/dev/null || echo "")
+    if [[ "$grace" == "60" ]]; then pass "statefulset/$sts terminationGracePeriodSeconds=60"; else fail "statefulset/$sts terminationGracePeriodSeconds=$grace (expected 60)"; fi
+done
 
 # ---------------------------------------------------------------------------
 # PodDisruptionBudgets (chart applies both; kustomize prod applies both)
 # ---------------------------------------------------------------------------
-step "PodDisruptionBudgets (2 expected: booking-pdb, frontend-pdb)"
-if kubectl get pdb booking-pdb -n apollo-airlines-apps >/dev/null 2>&1; then
-    min=$(kubectl get pdb booking-pdb -n apollo-airlines-apps -o jsonpath='{.spec.minAvailable}' 2>/dev/null || echo "")
-    pass "pdb/booking-pdb (minAvailable=$min)"
+step "PodDisruptionBudgets match the selected environment"
+if [[ "$ENV" == "prod" ]]; then
+    for entry in "apollo-airlines-apps:booking-pdb" "apollo-airlines-ui:frontend-pdb"; do
+        ns="${entry%%:*}"; name="${entry##*:}"
+        min=$(kubectl get pdb "$name" -n "$ns" -o jsonpath='{.spec.minAvailable}' 2>/dev/null || echo "")
+        if [[ "$min" == "2" ]]; then pass "pdb/$name minAvailable=2"; else fail "pdb/$name minAvailable=$min (expected 2)"; fi
+    done
 else
-    echo "  (skip) pdb/booking-pdb missing — chart may not include PDBs in this mode"
-fi
-if kubectl get pdb frontend-pdb -n apollo-airlines-ui >/dev/null 2>&1; then
-    min=$(kubectl get pdb frontend-pdb -n apollo-airlines-ui -o jsonpath='{.spec.minAvailable}' 2>/dev/null || echo "")
-    pass "pdb/frontend-pdb (minAvailable=$min)"
-else
-    echo "  (skip) pdb/frontend-pdb missing"
+    for entry in "apollo-airlines-apps:booking-pdb" "apollo-airlines-ui:frontend-pdb"; do
+        ns="${entry%%:*}"; name="${entry##*:}"
+        if kubectl get pdb "$name" -n "$ns" >/dev/null 2>&1; then fail "pdb/$name should be disabled in $ENV"; else pass "pdb/$name disabled in $ENV"; fi
+    done
 fi
 
 # ---------------------------------------------------------------------------
-# Seed Jobs (chart only)
+# Seed Jobs
 # ---------------------------------------------------------------------------
-if [[ "$MODE" == "helm" ]]; then
-    step "Seed Jobs (3 expected: identity, flight, booking — all Complete)"
-    for job in seed-identity-db seed-flight-db seed-booking-db; do
+step "Seed Jobs (3 expected: identity, flight, booking — all Complete)"
+for job in seed-identity-db seed-flight-db seed-booking-db; do
         status=$(kubectl get job "$job" -n apollo-airlines-apps -o jsonpath='{.status.conditions[?(@.type=="Complete")].status}' 2>/dev/null || echo "")
         if [[ "$status" == "True" ]]; then
             pass "job/$job Complete"
         else
             fail "job/$job status=$status (expected Complete=True)"
         fi
+done
+
+# ---------------------------------------------------------------------------
+# Runtime contract inherited from Stages 3 and 4
+# ---------------------------------------------------------------------------
+step "Database URLs expanded from Secret-backed environment variables"
+for dep in identity flight booking; do
+    if kubectl exec -n apollo-airlines-apps "deployment/$dep" -- \
+        sh -c 'case "$DATABASE_URL" in *\$\(*) exit 1 ;; *) exit 0 ;; esac' >/dev/null 2>&1; then
+        pass "deployment/$dep DATABASE_URL contains no unexpanded variable"
+    else
+        fail "deployment/$dep DATABASE_URL still contains an unexpanded variable"
+    fi
+done
+
+step "Live probe endpoints respond inside all 6 application pods"
+for entry in \
+    "apollo-airlines-apps:identity:8080" \
+    "apollo-airlines-apps:flight:8081" \
+    "apollo-airlines-apps:booking:8082" \
+    "apollo-airlines-apps:search:8083" \
+    "apollo-airlines-apps:notification:8084" \
+    "apollo-airlines-ui:frontend:3000"; do
+    ns="${entry%%:*}"; remainder="${entry#*:}"; app="${remainder%%:*}"; port="${entry##*:}"
+    for endpoint in startup live ready; do
+        response=$(kubectl exec -n "$ns" "deployment/$app" -- \
+            sh -c "wget -q -O- --tries=1 http://127.0.0.1:$port/healthz/$endpoint 2>/dev/null || echo FAIL" 2>/dev/null | tr -d '\n' || echo "")
+        if [[ -n "$response" && "$response" != "FAIL" && "$response" != *error* ]]; then
+            pass "$app /healthz/$endpoint responds"
+        else
+            # The Python slim identity image intentionally has no wget.
+            response=$(kubectl exec -n "$ns" "deployment/$app" -- \
+                python3 -c "import urllib.request; print(urllib.request.urlopen('http://127.0.0.1:$port/healthz/$endpoint').status)" \
+                2>/dev/null | tr -d '\n' || echo "")
+            if [[ "$response" == "200" ]]; then
+                pass "$app /healthz/$endpoint responds"
+            else
+                fail "$app /healthz/$endpoint is unreachable"
+            fi
+        fi
+    done
+done
+
+step "Seed data is present"
+users=$(kubectl exec -n apollo-airlines-apps identity-db-0 -- \
+    psql -U postgres -d identity -tAc 'SELECT count(*) FROM users;' 2>/dev/null || echo 0)
+airports=$(kubectl exec -n apollo-airlines-apps flight-db-0 -- \
+    psql -U postgres -d flight -tAc 'SELECT count(*) FROM airports;' 2>/dev/null || echo 0)
+flights=$(kubectl exec -n apollo-airlines-apps flight-db-0 -- \
+    psql -U postgres -d flight -tAc 'SELECT count(*) FROM flights;' 2>/dev/null || echo 0)
+if [[ "$users" -ge 2 ]]; then pass "identity seed has $users users"; else fail "identity seed has $users users (expected >=2)"; fi
+if [[ "$airports" -ge 6 ]]; then pass "flight seed has $airports airports"; else fail "flight seed has $airports airports (expected >=6)"; fi
+if [[ "$flights" -ge 180 ]]; then pass "flight seed has $flights flights"; else fail "flight seed has $flights flights (expected >=180)"; fi
+
+step "Frontend bundle contains routed API hosts and no localhost API URLs"
+bundle_urls=$(kubectl exec -n apollo-airlines-ui deployment/frontend -- \
+    grep -R -o -E 'http://(localhost:[0-9]+|[a-z]+\.apollo\.local)' \
+    /usr/share/nginx/html/assets 2>/dev/null || echo "")
+missing_hosts=()
+for host in identity flight booking search; do
+    if ! grep -q "http://${host}.apollo.local" <<<"$bundle_urls"; then missing_hosts+=("$host.apollo.local"); fi
+done
+if grep -q 'http://localhost:' <<<"$bundle_urls"; then
+    fail "frontend bundle contains localhost API URLs"
+elif [[ "${#missing_hosts[@]}" -gt 0 ]]; then
+    fail "frontend bundle is missing API hosts: ${missing_hosts[*]}"
+else
+    pass "frontend bundle has all four routed API hosts"
+fi
+
+if [[ "$MODE" == "helm" ]]; then
+    step "Helm release and workload ownership metadata"
+    release_status=$(helm status apollo11 -n apollo-airlines-apps -o json 2>/dev/null | jq -r '.info.status // empty' || echo "")
+    if [[ "$release_status" == "deployed" ]]; then pass "Helm release apollo11 status=deployed"; else fail "Helm release apollo11 status=$release_status"; fi
+    for entry in \
+        "deployment:apollo-airlines-apps:identity" "deployment:apollo-airlines-apps:flight" \
+        "deployment:apollo-airlines-apps:booking" "deployment:apollo-airlines-apps:search" \
+        "deployment:apollo-airlines-apps:notification" "deployment:apollo-airlines-ui:frontend" \
+        "statefulset:apollo-airlines-apps:identity-db" "statefulset:apollo-airlines-apps:flight-db" \
+        "statefulset:apollo-airlines-apps:booking-db" "statefulset:apollo-airlines-apps:redis"; do
+        kind="${entry%%:*}"; remainder="${entry#*:}"; ns="${remainder%%:*}"; name="${remainder##*:}"
+        owner=$(kubectl get "$kind" "$name" -n "$ns" -o jsonpath='{.metadata.labels.app\.kubernetes\.io/managed-by}' 2>/dev/null || echo "")
+        if [[ "$owner" == "Helm" ]]; then pass "$kind/$name managed-by=Helm"; else fail "$kind/$name managed-by=$owner (expected Helm)"; fi
     done
 fi
 
 # ---------------------------------------------------------------------------
-# Gateway (helm mode only)
+# Gateway (both packaging modes)
 # ---------------------------------------------------------------------------
 if [[ "$GATEWAY_EXPECTED" == "true" ]]; then
-    step "Envoy Gateway (access stack, helm mode only)"
+    step "Envoy Gateway access stack"
 
     if kubectl get ns envoy-gateway-system >/dev/null 2>&1; then
         pass "ns/envoy-gateway-system"
@@ -334,6 +468,26 @@ if [[ "$GATEWAY_EXPECTED" == "true" ]]; then
         pass "l2advertisement/apollo-l2"
     else
         fail "l2advertisement/apollo-l2 missing"
+    fi
+
+    step "HTTPRoutes are attached and live through the MetalLB address"
+    envoy_ip=$(kubectl get service -n envoy-gateway-system \
+        -l gateway.envoyproxy.io/owning-gateway-name=apollo-gateway \
+        -o jsonpath='{.items[0].status.loadBalancer.ingress[0].ip}' 2>/dev/null || echo "")
+    if [[ -n "$envoy_ip" ]]; then pass "Envoy LoadBalancer address=$envoy_ip"; else fail "Envoy LoadBalancer has no address"; fi
+    parent_count=$(kubectl get httproute -A -o custom-columns='P:.status.parents[*].controllerName' --no-headers 2>/dev/null | grep -c gateway.envoyproxy.io || true)
+    if [[ "$parent_count" -ge 6 ]]; then pass "all 6 HTTPRoutes report an Envoy parent"; else fail "only $parent_count/6 HTTPRoutes report an Envoy parent"; fi
+    if [[ -n "$envoy_ip" ]]; then
+        for route in identity flight booking search notification; do
+            code=$(curl -s -o /dev/null -w '%{http_code}' -H "Host: $route.apollo.local" "http://$envoy_ip/healthz" 2>/dev/null || echo 000)
+            if [[ "$code" == "200" ]]; then pass "Envoy -> $route /healthz -> 200"; else fail "Envoy -> $route /healthz -> $code"; fi
+        done
+        code=$(curl -s -o /dev/null -w '%{http_code}' -H 'Host: frontend.apollo.local' "http://$envoy_ip/" 2>/dev/null || echo 000)
+        if [[ "$code" == "200" ]]; then pass "Envoy -> frontend / -> 200"; else fail "Envoy -> frontend / -> $code"; fi
+        login=$(curl -s -X POST -H 'Host: identity.apollo.local' -H 'Content-Type: application/json' \
+            -d '{"email":"admin@apolloairlines.com","password":"admin123"}' \
+            "http://$envoy_ip/api/users/login" 2>/dev/null || echo "")
+        if grep -q '"token":"[^"]' <<<"$login"; then pass "login flow through Envoy returned a token"; else fail "login flow through Envoy did not return a token"; fi
     fi
 fi
 

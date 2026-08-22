@@ -12,11 +12,11 @@ prod), and continuously reconciles drift.
 | | |
 |---|---|
 | **New concept** | GitOps, AppProject, Application, sync policy, prune, self-heal, sync waves, manifests rendered with Kustomize side-by-side Helm |
-| **ArgoCD version** | v2.13.x (matches `argocd` CLI in `devbox.json`) |
-| **Install pattern** | `kubectl apply -n argocd -f https://raw.githubusercontent.com/argoproj/argo-cd/v2.13.2/manifests/install.yaml` — **or** use the bundled offline install for air-gapped clusters |
+| **Argo CD version** | v3.5.1, pinned and vendored |
+| **Install pattern** | `bash install.sh --offline` applies the official manifest server-side with force-conflicts |
 | **Delivery model** | Three `Application` CRs, one per environment, all sourced from `stages/stage5/helm/apollo11/` |
-| **Scope** | This module installs ArgoCD into the cluster, then registers the three Apollo Applications. It does **not** re-install the workloads — that's `stages/stage5/scripts/apply.sh`'s job. |
-| **Verify target** | ~25 checks: ArgoCD pods Healthy, 3 Applications Synced+Healthy, AppProject exists with restricted scope, repo creds working, manifests rendered correctly per env |
+| **Scope** | Installs Argo CD, a shared Gateway/MetalLB platform, and three namespace-isolated Applications |
+| **Verify target** | 74 live checks, including a real self-heal test |
 
 ---
 
@@ -36,8 +36,8 @@ cluster holds the state. ArgoCD flips this:
                                                    ▼
                                           ┌──────────────────┐
                                           │  target cluster  │
-                                          │  apollo-airlines │
-                                          │  -apps / -ui     │
+                                          │  dev/stage/prod  │
+                                          │  isolated pairs  │
                                           └──────────────────┘
 ```
 
@@ -65,11 +65,12 @@ cluster holds the state. ArgoCD flips this:
 | `argocd-redis` | Caches rendered manifests. |
 | `argocd-dex-server` | (Disabled by default; we use local users for dev.) |
 
-### Data plane (lives in `apollo-airlines-apps` / `apollo-airlines-ui`)
+### Data plane (six isolated namespaces)
 
-The same workloads Stage 4 / Stage 5 already defined. ArgoCD does **not**
-create or own these namespaces directly — the chart does (via its bundled
-`namespace.yaml` template). ArgoCD just *manages* what's in them.
+Dev, staging, and prod each receive an `-apps` and `-ui` namespace. The
+platform manifest creates those namespaces once; each Application can manage
+only its own pair. A shared GatewayClass and MetalLB pool stay outside tenant
+ownership.
 
 ### Application CRs (one per env)
 
@@ -79,19 +80,18 @@ create or own these namespaces directly — the chart does (via its bundled
 | `apollo11-staging` | same | `values-staging.yaml` | automated + prune + selfHeal | Pre-prod mirror |
 | `apollo11-prod` | same | `values-prod.yaml` | **manual** | Production — human gates sync |
 
-All three Applications live in the **`apollo-airlines` ArgoCD namespace**
-(not the `argocd` system namespace) and are scoped by an `AppProject` of
-the same name. This is best practice: ArgoCD system resources stay in
-`argocd`, your tenant resources in their own namespace.
+All three Applications and their AppProject live in Argo CD's standard
+`argocd` namespace. This avoids requiring the optional
+"Applications in any namespace" controller configuration.
 
 ### AppProject
 
 `projects/project.yaml` defines `apollo-airlines` with:
 
 - **Source repos:** only this repo (or a future mirror).
-- **Destinations:** only `apollo-airlines-apps` and `apollo-airlines-ui`.
+- **Destinations:** only the six dev/staging/prod namespace targets.
 - **Cluster resource whitelist:** none (no cluster-scoped resources).
-- **Namespace resource whitelist:** everything in those two namespaces.
+- **Namespace resource whitelist:** everything inside those six namespaces.
 
 This is a soft-isolation pattern — the same cluster can host multiple
 projects (e.g. `apollo-airlines`, `data-platform`, `monitoring`) without
@@ -108,7 +108,9 @@ stages/stage5/argocd/
 ├── install.sh                         (one-shot ArgoCD install into the cluster)
 ├── uninstall.sh                       (one-shot ArgoCD removal)
 ├── bundles/
-│   └── argocd-install.yaml            (offline-friendly ArgoCD v2.13.2 manifest)
+│   └── argocd-install.yaml            (offline-friendly ArgoCD v3.5.1 manifest)
+├── platform/
+│   └── platform.yaml                  (six namespaces + shared GatewayClass/pool)
 ├── projects/
 │   └── project.yaml                   (AppProject: apollo-airlines)
 ├── applications/
@@ -117,13 +119,14 @@ stages/stage5/argocd/
 │   └── prod.yaml                      (Application: apollo11-prod, manual sync)
 └── scripts/
     ├── bootstrap.sh                   (install ArgoCD + project + 3 apps, idempotent)
-    ├── verify.sh                      (~25 checks: pods, applications, project, health)
+    ├── validate.sh                    (offline static isolation/render gate)
+    ├── verify.sh                      (74 checks: control plane, apps, workloads, self-heal)
     └── teardown.sh                    (remove apps + project, optional --full uninstall)
 ```
 
-> The `bundles/argocd-install.yaml` is intentionally **not** committed by
-> default — see "Offline install" below. Run `./install.sh` once with
-> internet access to fetch it, or use the live manifest URL.
+> `bundles/argocd-install.yaml` is the vendored official v3.5.1 non-HA
+> manifest (34,050 lines). Use `--fetch-bundle --version ...` only when
+> deliberately upgrading the pin.
 
 ---
 
@@ -149,14 +152,11 @@ stages/stage5/argocd/
 1. **A running cluster** — `kind create cluster --name apollo11` or any
    k8s 1.29+ cluster.
 2. **`kubectl`** configured to talk to it (`kubectl cluster-info` works).
-3. **`argocd` CLI** (in `devbox.json`, install with `devbox install` or
-   `brew install argocd`).
-4. **`helm` 3.14+** (already in devbox).
-5. **The repo cloned locally** — the `repoServer` is configured to use a
-   `helm` type source pointing at a local path, which only works if ArgoCD
-   is told the path. For dev, we use the `directory` source type pointing
-   at the chart's parent dir. **For prod / a real cluster, change the
-   `repoURL` to `https://github.com/<owner>/<repo>` and push the repo.**
+3. **`helm` 3.14+** for the static validation gate.
+4. **A reachable Git repo.** Defaults point to the canonical GitHub repo;
+   `bootstrap.sh --repo-url URL` supports forks and local test fixtures.
+5. **Images.** CI publishes GHCR images; for a kind-only exercise preload
+   images and pass `--image-repository apollo11`.
 
 ---
 
@@ -165,20 +165,19 @@ stages/stage5/argocd/
 ```bash
 cd stages/stage5/argocd
 
-# 1. Install ArgoCD into the cluster
-bash install.sh
+# 1. Install Argo CD from the vendored official bundle
+bash install.sh --offline
 
 # 2. Register the AppProject + 3 Applications
-bash scripts/bootstrap.sh
+bash scripts/bootstrap.sh --sync
 
 # 3. Watch the magic
-argocd app list -n apollo-airlines
-argocd app sync apollo11-dev --grpc-web    # force first sync (or wait for auto)
+kubectl get applications -n argocd
 
 # 4. Verify
 bash scripts/verify.sh
 
-# 5. Open the UI (port-forward, default password: see install.sh output)
+# 5. Open the UI (install.sh prints a command to retrieve the credential)
 kubectl port-forward svc/argocd-server -n argocd 8080:443 &
 open http://localhost:8080
 ```

@@ -324,7 +324,7 @@ metadata:
   namespace: apollo-airlines
 spec:
   sourceRepos:        # which git repos this project can pull from
-    - 'https://github.com/darshan/Apollo11'
+    - 'https://github.com/darshan-raul/Apollo11.git'
   destinations:       # which clusters + namespaces apps can deploy to
     - server: https://kubernetes.default.svc
       namespace: apollo-airlines-apps
@@ -369,7 +369,7 @@ metadata:
 spec:
   project: apollo-airlines                     # MUST match an AppProject
   source:
-    repoURL: https://github.com/darshan/Apollo11
+    repoURL: https://github.com/darshan-raul/Apollo11.git
     targetRevision: HEAD
     path: stages/stage5/helm/apollo11
     helm:
@@ -451,7 +451,7 @@ spec:
                   env: prod
           - list:
               items:
-                - repoURL: https://github.com/darshan/Apollo11
+                - repoURL: https://github.com/darshan-raul/Apollo11.git
                   chartPath: stages/stage5/helm/apollo11
   template:
     metadata:
@@ -486,7 +486,7 @@ repoServer for rendering.
 
 ```yaml
 source:
-  repoURL: https://github.com/darshan/Apollo11
+  repoURL: https://github.com/darshan-raul/Apollo11.git
   targetRevision: HEAD
   path: stages/stage5/overlays/base
 ```
@@ -499,7 +499,7 @@ manifests, Kustomize output, or for Kustomize applied via
 
 ```yaml
 source:
-  repoURL: https://github.com/darshan/Apollo11
+  repoURL: https://github.com/darshan-raul/Apollo11.git
   targetRevision: HEAD
   path: stages/stage5/helm/apollo11
   helm:
@@ -528,7 +528,7 @@ overridden. The rendered output becomes the desired state.
 
 ```yaml
 source:
-  repoURL: https://github.com/darshan/Apollo11
+  repoURL: https://github.com/darshan-raul/Apollo11.git
   targetRevision: HEAD
   path: stages/stage5/overlays/prod
   kustomize:
@@ -555,7 +555,7 @@ For `cue`, `jsonnet`, `sops`, `helmfile`, or anything else.
 
 ```yaml
 source:
-  repoURL: https://github.com/darshan/Apollo11
+  repoURL: https://github.com/darshan-raul/Apollo11.git
   targetRevision: HEAD
   path: stages/stage5/manifests
   plugin:
@@ -756,20 +756,21 @@ A good end-to-end smoke test for a healthy ArgoCD setup:
 APP=apollo11-dev
 
 # 2. Cause a known drift
-kubectl scale deployment/booking --replicas=99 -n apollo-airlines-apps
+kubectl scale deployment/booking --replicas=99 -n apollo-airlines-dev-apps
 
 # 3. Wait for selfHeal (default 3 minutes)
 argocd app wait $APP --health
 
 # 4. Confirm the cluster reverted
-kubectl get deployment/booking -n apollo-airlines-apps \
+kubectl get deployment/booking -n apollo-airlines-dev-apps \
     -o jsonpath='{.spec.replicas}'
 # → 1 (or whatever the chart says)
 ```
 
 If this test fails, self-heal is broken and you have a serious
-operational gap. The verify.sh script in `argocd/scripts/verify.sh`
-runs a related test (delete a pod, watch it re-create).
+operational gap. The verify script in `argocd/scripts/verify.sh` performs this
+same class of test by changing replicas from 1 to 2 and requiring Argo CD to
+restore the declared value of 1.
 
 ---
 
@@ -1650,7 +1651,7 @@ spec:
     spec:
       project: apollo-airlines
       source:
-        repoURL: https://github.com/darshan/Apollo11
+        repoURL: https://github.com/darshan-raul/Apollo11.git
         targetRevision: HEAD
         path: stages/stage5/helm/apollo11
         helm:
@@ -1743,7 +1744,7 @@ default is to prune.
 default `install.yaml` does NOT include it. Install it explicitly:
 
 ```bash
-kubectl apply -n argocd -f https://raw.githubusercontent.com/argoproj/argo-cd/v2.13.2/manifests/appset-install.yaml
+kubectl apply -n argocd -f https://raw.githubusercontent.com/argoproj/argo-cd/v3.5.1/manifests/appset-install.yaml
 ```
 
 ---
@@ -2325,6 +2326,6 @@ explicit allowlist).
 
 ---
 
-*Last updated: 2025-06-11. ArgoCD v2.13.x. The Apollo11 setup uses
-ArgoCD v2.13.2 specifically; some features (ApplicationSet
+*Last updated: 2026-08-22. Argo CD v3.5.1. The Apollo11 setup uses
+ArgoCD v3.5.1 specifically; some features (ApplicationSet
 `matrix.merge` generators, post-delete hooks) are 2.12+.*

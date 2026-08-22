@@ -15,10 +15,9 @@
 #                 * 6 HTTPRoutes + 1 ReferenceGrant (cross-namespace)
 #                 * MetalLB install + IPAddressPool + L2Advertisement
 #
-#   kustomize — applies overlays/{env}/ on top of the plain manifest base.
-#               Useful for dev iteration. Does NOT install the access stack
-#               (StatefulSets, Envoy, MetalLB, seed jobs); the chart owns
-#               those.
+#   kustomize — installs the prerequisite controller bundles, then applies the
+#               full committed plain-manifest base through overlays/{env}/.
+#               Helm is not used by this path.
 #
 # Usage:
 #   ./scripts/apply.sh                                  # helm install with defaults
@@ -39,6 +38,7 @@ REGISTRY="apollo11"
 MODE="helm"
 ENV="dev"
 TAG="latest"
+TAG_EXPLICIT=false
 SKIP_BUILD=false
 RELEASE_NAME="apollo11"
 
@@ -51,15 +51,15 @@ Options:
   --env ENV         dev (default) | staging | prod
                     helm mode:      picks helm/apollo11/values-\$ENV.yaml
                     kustomize mode: picks overlays/\$ENV/
-  --tag TAG         Image tag (default: latest). Overrides the value in
-                    the env-specific values file.
+  --tag TAG         Helm image-tag override (default: latest). Kustomize tags
+                    are declared by the selected overlay and must match.
   --skip-build      Reuse pre-built images; skip the docker build step
   --release NAME    Helm release name (default: apollo11)
   --help            Show this help
 
 Examples:
   $0                                          # helm install (defaults: tag=latest, no env file)
-  $0 --env dev                                # helm with values-dev.yaml (1 replica, tag=dev)
+  $0 --env dev                                # helm with values-dev.yaml (1 replica, tag=latest)
   $0 --env staging --tag latest               # helm with values-staging.yaml
   $0 --env prod --tag v1.2.3                  # helm with values-prod.yaml
   $0 --mode kustomize --env dev               # kustomize overlays/dev/
@@ -71,7 +71,7 @@ while [[ $# -gt 0 ]]; do
     case $1 in
         --mode)        MODE="$2"; shift 2 ;;
         --env)         ENV="$2"; shift 2 ;;
-        --tag)         TAG="$2"; shift 2 ;;
+        --tag)         TAG="$2"; TAG_EXPLICIT=true; shift 2 ;;
         --skip-build)  SKIP_BUILD=true; shift ;;
         --release)     RELEASE_NAME="$2"; shift 2 ;;
         --help)        usage ;;
@@ -84,12 +84,69 @@ case "$ENV" in
     dev|staging|prod) ;;
     *) echo "Invalid --env '$ENV' (expected dev, staging, or prod)"; usage ;;
 esac
+case "$MODE" in
+    helm|kustomize) ;;
+    *) echo "Invalid --mode '$MODE' (expected helm or kustomize)"; usage ;;
+esac
+
+if [[ "$MODE" == "kustomize" ]]; then
+    if [[ "$ENV" == "prod" ]]; then
+        expected_tag="v1.0.0"
+        # Production references immutable GHCR images; there is no useful
+        # local kind image to build or load for this overlay.
+        SKIP_BUILD=true
+    else
+        expected_tag="latest"
+    fi
+    if [[ "$TAG_EXPLICIT" == "true" && "$TAG" != "$expected_tag" ]]; then
+        echo "Kustomize overlay '$ENV' declares image tag '$expected_tag', not '$TAG'."
+        exit 1
+    fi
+    TAG="$expected_tag"
+fi
 
 # Colors
 GREEN='\033[0;32m'; CYAN='\033[0;36m'; RED='\033[0;31m'; NC='\033[0m'
 step()  { echo -e "${CYAN}▶ $1${NC}"; }
 ok()    { echo -e "${GREEN}✓ $1${NC}"; }
 fail()  { echo -e "${RED}✗ $1${NC}"; exit 1; }
+
+install_platform_bundles() {
+    local envoy_bundle="$CHART_DIR/bundles/envoy-gateway-install.yaml"
+    local metallb_bundle="$CHART_DIR/bundles/metallb-native.yaml"
+    local crds_ready=false
+    local endpoints=""
+
+    [[ -f "$envoy_bundle" ]] || fail "missing Envoy Gateway bundle: $envoy_bundle"
+    [[ -f "$metallb_bundle" ]] || fail "missing MetalLB bundle: $metallb_bundle"
+
+    kubectl create namespace envoy-gateway-system --dry-run=client -o yaml | kubectl apply -f - >/dev/null
+    kubectl apply --server-side -f "$envoy_bundle" 2>&1 | tail -2
+    ok "Envoy Gateway bundle applied"
+
+    kubectl create namespace metallb-system --dry-run=client -o yaml | kubectl apply -f - >/dev/null
+    kubectl apply --server-side --force-conflicts -f "$metallb_bundle" 2>&1 | tail -2
+    ok "MetalLB bundle applied"
+
+    for i in 1 2 3 4 5 6 7 8 9 10; do
+        if kubectl get crd gateways.gateway.networking.k8s.io >/dev/null 2>&1 && \
+           kubectl get crd ipaddresspools.metallb.io >/dev/null 2>&1; then
+            crds_ready=true
+            break
+        fi
+        sleep 3
+    done
+    [[ "$crds_ready" == "true" ]] || fail "Envoy Gateway/MetalLB CRDs did not register within 30s"
+    ok "platform CRDs registered"
+
+    for i in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20; do
+        endpoints=$(kubectl get endpoints metallb-webhook-service -n metallb-system -o jsonpath='{.subsets[0].addresses[0].ip}' 2>/dev/null || echo "")
+        [[ -n "$endpoints" ]] && break
+        sleep 3
+    done
+    [[ -n "$endpoints" ]] || fail "MetalLB webhook did not become ready within 60s"
+    ok "MetalLB webhook endpoint ready ($endpoints)"
+}
 
 step "0/8 Checking cluster"
 if ! kubectl cluster-info >/dev/null 2>&1; then
@@ -102,8 +159,8 @@ ok "cluster reachable"
 # ---------------------------------------------------------------------------
 if [[ "$SKIP_BUILD" != "true" ]]; then
     step "1/8 Building + loading images (tag: $TAG)"
-    bash "$SCRIPT_DIR/build-images.sh" --tag "$TAG" --cluster "$CLUSTER" || \
-        echo "  (image build/load warnings — continuing)"
+    bash "$SCRIPT_DIR/build-images.sh" --tag "$TAG" --cluster "$CLUSTER"
+    ok "all 6 application images built and loaded"
 else
     step "1/8 Skipping build (--skip-build)"
 fi
@@ -125,33 +182,37 @@ if [[ "$MODE" == "helm" ]]; then
     # Both bundles use --server-side for the >256KB last-applied-config
     # workaround. MetalLB needs --force-conflicts because its webhook
     # manages its own CA.
-    if [[ -f "$CHART_DIR/bundles/envoy-gateway-install.yaml" ]]; then
-        # Create the namespace first; the bundled install doesn't always
-        # create it on its own.
-        kubectl create namespace envoy-gateway-system --dry-run=client -o yaml | kubectl apply -f - >/dev/null
-        kubectl apply --server-side -f "$CHART_DIR/bundles/envoy-gateway-install.yaml" 2>&1 | tail -2
-        ok "Envoy Gateway CRDs applied"
-    fi
-    if [[ -f "$CHART_DIR/bundles/metallb-native.yaml" ]]; then
-        kubectl create namespace metallb-system --dry-run=client -o yaml | kubectl apply -f - >/dev/null
-        kubectl apply --server-side --force-conflicts -f "$CHART_DIR/bundles/metallb-native.yaml" 2>&1 | tail -2
-        ok "MetalLB CRDs applied"
-    fi
+    ENVOY_BUNDLE="$CHART_DIR/bundles/envoy-gateway-install.yaml"
+    METALLB_BUNDLE="$CHART_DIR/bundles/metallb-native.yaml"
+    [[ -f "$ENVOY_BUNDLE" ]] || fail "missing Envoy Gateway bundle: $ENVOY_BUNDLE"
+    [[ -f "$METALLB_BUNDLE" ]] || fail "missing MetalLB bundle: $METALLB_BUNDLE"
+
+    kubectl create namespace envoy-gateway-system --dry-run=client -o yaml | kubectl apply -f - >/dev/null
+    kubectl apply --server-side -f "$ENVOY_BUNDLE" 2>&1 | tail -2
+    ok "Envoy Gateway bundle applied"
+
+    kubectl create namespace metallb-system --dry-run=client -o yaml | kubectl apply -f - >/dev/null
+    kubectl apply --server-side --force-conflicts -f "$METALLB_BUNDLE" 2>&1 | tail -2
+    ok "MetalLB bundle applied"
 
     step "3/8 Wait for CRD registration"
     # Wait until the API server can see the new CRDs
+    crds_ready=false
     for i in 1 2 3 4 5 6 7 8 9 10; do
         if kubectl get crd gateways.gateway.networking.k8s.io >/dev/null 2>&1 && \
            kubectl get crd ipaddresspools.metallb.io >/dev/null 2>&1; then
             ok "CRDs registered"
+            crds_ready=true
             break
         fi
         sleep 3
     done
+    [[ "$crds_ready" == "true" ]] || fail "Envoy Gateway/MetalLB CRDs did not register within 30s"
 
     step "4/8 Wait for MetalLB webhook to be ready"
     # The MetalLB IPAddressPool has a validating webhook. The webhook
     # service must be up before the chart can create pool resources.
+    endpoints=""
     for i in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20; do
         # Webhook endpoints become non-empty when the controller pod is up
         endpoints=$(kubectl get endpoints metallb-webhook-service -n metallb-system -o jsonpath='{.subsets[0].addresses[0].ip}' 2>/dev/null || echo "")
@@ -161,15 +222,20 @@ if [[ "$MODE" == "helm" ]]; then
         fi
         sleep 3
     done
+    [[ -n "$endpoints" ]] || fail "MetalLB webhook did not become ready within 60s"
 
     step "5/8 Helm install (release: $RELEASE_NAME, env: $ENV)"
+    # Helm's release namespace is created by --create-namespace. The chart
+    # deliberately owns neither namespace, so create the cross-namespace UI
+    # target before Helm submits its resources.
+    kubectl create namespace apollo-airlines-ui --dry-run=client -o yaml | kubectl apply -f - >/dev/null
     HELM_CMD=(helm upgrade --install "$RELEASE_NAME" "$CHART_DIR"
         --namespace apollo-airlines-apps
         --create-namespace
         --set image.tag="$TAG"
         --set gateway.envoy.bundleInstall=false
         --set metallb.bundleInstall=false
-        --wait --timeout 10m)
+        --wait --wait-for-jobs --timeout 10m)
 
     # Apply env-specific values file if present (values-dev.yaml,
     # values-staging.yaml, values-prod.yaml). The env-specific file
@@ -186,54 +252,50 @@ if [[ "$MODE" == "helm" ]]; then
     "${HELM_CMD[@]}" 2>&1 | tail -20
     ok "helm install complete"
 
-    # The chart creates envoy-gateway-system + metallb-system namespaces
-    # via its bundled install YAMLs; verify they're up.
     step "6/8 Waiting for MetalLB controller pod"
+    metallb_ready=false
     for i in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15; do
         if kubectl get pods -n metallb-system -l component=controller --no-headers 2>/dev/null | grep -q "1/1"; then
             ok "MetalLB controller ready"
+            metallb_ready=true
             break
         fi
         sleep 5
     done
+    [[ "$metallb_ready" == "true" ]] || fail "MetalLB controller did not become ready within 75s"
 
     step "7/8 Waiting for Envoy Gateway"
-    for i in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20; do
-        if kubectl get pods -n envoy-gateway-system -l gateway.envoyproxy.io/owning-gateway-name=apollo-gateway --no-headers 2>/dev/null | grep -q "1/1"; then
-            ok "Envoy Gateway ready"
-            break
-        fi
-        sleep 5
-    done
+    # The Envoy data-plane pod has two containers in the bundled release.
+    # Check the Pod Ready condition instead of assuming a literal 1/1 count.
+    kubectl wait --for=condition=Ready pod \
+        -n envoy-gateway-system \
+        -l gateway.envoyproxy.io/owning-gateway-name=apollo-gateway \
+        --timeout=100s >/dev/null || fail "Envoy data-plane pod did not become ready within 100s"
+    ok "Envoy Gateway ready"
 
     step "8/8 Waiting for StatefulSets (3 PG + 1 Redis)"
     for sts in identity-db flight-db booking-db redis; do
-        kubectl wait --for=jsonpath='{.status.readyReplicas}'=1 \
-            -n apollo-airlines-apps "statefulset/$sts" --timeout=120s 2>/dev/null && \
-            ok "statefulset/$sts ready" || \
-            echo "  (warn) statefulset/$sts not ready yet"
+        kubectl rollout status -n apollo-airlines-apps "statefulset/$sts" --timeout=180s >/dev/null || \
+            fail "statefulset/$sts did not become ready"
+        ok "statefulset/$sts ready"
     done
 
-    step "8/8 Waiting for seed jobs"
-    # (no further steps)
-    step "Final: waiting for app Deployments"
+    step "8b/8 Waiting for seed jobs"
     for job in seed-identity-db seed-flight-db seed-booking-db; do
-        kubectl wait --for=condition=Complete -n apollo-airlines-apps "job/$job" --timeout=120s 2>/dev/null && \
-            ok "job/$job Complete" || \
-            echo "  (warn) job/$job not complete"
+        kubectl wait --for=condition=Complete -n apollo-airlines-apps "job/$job" --timeout=120s >/dev/null || \
+            fail "job/$job did not complete"
+        ok "job/$job Complete"
     done
 
-    step "7/8 Waiting for app Deployments (6 apps + frontend)"
+    step "8c/8 Waiting for app Deployments (5 backends + frontend)"
     for dep in identity flight booking search notification; do
-        kubectl wait --for=jsonpath='{.status.readyReplicas}'=1 \
-            -n apollo-airlines-apps "deployment/$dep" --timeout=120s 2>/dev/null && \
-            ok "deployment/$dep ready" || \
-            echo "  (warn) deployment/$dep not ready"
+        kubectl rollout status -n apollo-airlines-apps "deployment/$dep" --timeout=180s >/dev/null || \
+            fail "deployment/$dep did not become ready"
+        ok "deployment/$dep ready"
     done
-    kubectl wait --for=jsonpath='{.status.readyReplicas}'=1 \
-        -n apollo-airlines-ui "deployment/frontend" --timeout=120s 2>/dev/null && \
-        ok "deployment/frontend ready" || \
-        echo "  (warn) deployment/frontend not ready"
+    kubectl rollout status -n apollo-airlines-ui deployment/frontend --timeout=180s >/dev/null || \
+        fail "deployment/frontend did not become ready"
+    ok "deployment/frontend ready"
 
     step "8/8 Summary"
     ok "Apollo Airlines installed via Helm"
@@ -249,7 +311,10 @@ elif [[ "$MODE" == "kustomize" ]]; then
         fail "overlay dir not found: $OVERLAY_DIR (env: $ENV)"
     fi
 
-    step "2/8 Ensuring namespaces exist"
+    step "2/8 Installing Envoy Gateway + MetalLB controller bundles"
+    install_platform_bundles
+
+    step "3/8 Ensuring workload namespaces exist"
     kubectl apply -f - <<EOF
 apiVersion: v1
 kind: Namespace
@@ -269,46 +334,46 @@ metadata:
 EOF
     ok "namespaces ready"
 
-    step "3/8 ServiceAccounts (13 total)"
-    # The kustomize base doesn't include SAs (intentionally — the
-    # base is apps-only). Apply the chart's SA template directly.
-    helm template "$RELEASE_NAME" "$CHART_DIR" --show-only templates/config/serviceaccount.yaml --namespace apollo-airlines-apps 2>/dev/null | \
-        kubectl apply -f - 2>&1 | tail -3
-    ok "ServiceAccounts applied"
-
-    step "4/8 ConfigMap + Secret"
-    helm template "$RELEASE_NAME" "$CHART_DIR" --show-only templates/config/configmap.yaml 2>/dev/null | kubectl apply -f -
-    helm template "$RELEASE_NAME" "$CHART_DIR" --show-only templates/config/secrets.yaml 2>/dev/null | kubectl apply -f -
-    ok "ConfigMap + Secret applied"
-
-    step "5/8 Kustomize build ($ENV overlay)"
-    # The base expects StatefulSets + DB hostnames to exist. For pure
-    # kustomize, we ship a separate plain manifest for postgres/redis.
-    # For now: apply the chart's infra templates + the kustomize overlay.
+    step "4/8 Kustomize build ($ENV overlay)"
     echo "  Building kustomize overlay at $OVERLAY_DIR..."
-    if ! kubectl kustomize "$OVERLAY_DIR" > /tmp/stage5-kustomize.yaml 2>/tmp/kustomize-err; then
-        cat /tmp/kustomize-err
+    rendered_manifest=$(mktemp)
+    render_errors=$(mktemp)
+    if ! kubectl kustomize "$OVERLAY_DIR" > "$rendered_manifest" 2>"$render_errors"; then
+        cat "$render_errors"
+        rm -f "$rendered_manifest" "$render_errors"
         fail "kustomize build failed"
     fi
-    ok "kustomize build OK ($(wc -l < /tmp/stage5-kustomize.yaml) lines)"
+    rm -f "$render_errors"
+    ok "kustomize build OK ($(wc -l < "$rendered_manifest") lines)"
 
-    step "6/8 Applying kustomize overlay"
-    kubectl apply -k "$OVERLAY_DIR"
+    step "5/8 Applying complete plain-manifest overlay"
+    kubectl apply -f "$rendered_manifest"
+    rm -f "$rendered_manifest"
     ok "kustomize overlay applied"
 
-    step "7/8 Applying StatefulSets + jobs from chart (needed for the apps to work)"
-    for tmpl in infra/postgres.yaml infra/redis.yaml jobs/seed.yaml; do
-        helm template "$RELEASE_NAME" "$CHART_DIR" --show-only "templates/$tmpl" 2>/dev/null | kubectl apply -f - 2>&1 | tail -2
-    done
-    ok "StatefulSets + jobs applied"
-
-    step "8/8 Waiting for StatefulSets"
+    step "6/8 Waiting for StatefulSets + seed Jobs"
     for sts in identity-db flight-db booking-db redis; do
-        kubectl wait --for=jsonpath='{.status.readyReplicas}'=1 \
-            -n apollo-airlines-apps "statefulset/$sts" --timeout=120s 2>/dev/null && \
-            ok "statefulset/$sts ready" || \
-            echo "  (warn) statefulset/$sts not ready yet"
+        kubectl rollout status -n apollo-airlines-apps "statefulset/$sts" --timeout=180s >/dev/null || fail "statefulset/$sts did not become ready"
+        ok "statefulset/$sts ready"
     done
+    for job in seed-identity-db seed-flight-db seed-booking-db; do
+        kubectl wait --for=condition=Complete -n apollo-airlines-apps "job/$job" --timeout=120s >/dev/null || fail "job/$job did not complete"
+        ok "job/$job Complete"
+    done
+
+    step "7/8 Waiting for application Deployments"
+    for dep in identity flight booking search notification; do
+        kubectl rollout status -n apollo-airlines-apps "deployment/$dep" --timeout=180s >/dev/null || fail "deployment/$dep did not become ready"
+        ok "deployment/$dep ready"
+    done
+    kubectl rollout status -n apollo-airlines-ui deployment/frontend --timeout=180s >/dev/null || fail "deployment/frontend did not become ready"
+    ok "deployment/frontend ready"
+
+    step "8/8 Waiting for Envoy data-plane"
+    kubectl wait --for=condition=Ready pod -n envoy-gateway-system \
+        -l gateway.envoyproxy.io/owning-gateway-name=apollo-gateway \
+        --timeout=100s >/dev/null || fail "Envoy data-plane pod did not become ready"
+    ok "Envoy Gateway ready"
 
     ok "Apollo Airlines installed via kustomize ($ENV)"
     echo "  Run 'bash scripts/verify.sh --mode kustomize' to run the verify suite"

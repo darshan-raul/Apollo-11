@@ -1,5 +1,5 @@
 #!/bin/bash
-# Verify Stage 4: ~63 checks covering the Stage 3 baseline (StatefulSets,
+# Verify Stage 4: 130 checks covering the Stage 3 baseline (StatefulSets,
 # PVCs, access stack) + Stage 4 additions (probes, Guaranteed QoS, PDBs,
 # graceful-shutdown demo).
 set -e
@@ -147,6 +147,24 @@ if [[ "$RESP" == "200" ]]; then pass "Envoy → flight → 200"; else fail "Envo
 step "Smoke test: Envoy → frontend (Host header)"
 RESP=$(curl -s -o /dev/null -w "%{http_code}" -H "Host: frontend.apollo.local" "http://$ENVOY_IP/" 2>/dev/null || echo "000")
 if [[ "$RESP" == "200" ]]; then pass "Envoy → frontend → 200"; else fail "Envoy → frontend → $RESP (expected 200)"; fi
+
+step "Frontend bundle: Stage 2 set-5 API hostnames are baked at build time"
+BUNDLE_URLS=$(kubectl exec -n apollo-airlines-ui deploy/frontend -- \
+  grep -R -o -E 'http://(localhost:[0-9]+|[a-z]+\.apollo\.local)' \
+  /usr/share/nginx/html/assets 2>/dev/null || echo "")
+missing_hosts=()
+for host in identity flight booking search; do
+  if ! grep -q "http://${host}.apollo.local" <<<"$BUNDLE_URLS"; then
+    missing_hosts+=("$host.apollo.local")
+  fi
+done
+if grep -q 'http://localhost:' <<<"$BUNDLE_URLS"; then
+  fail "frontend bundle contains localhost API URLs"
+elif [[ "${#missing_hosts[@]}" -gt 0 ]]; then
+  fail "frontend bundle is missing API hostnames: ${missing_hosts[*]}"
+else
+  pass "frontend bundle contains identity/flight/booking/search.apollo.local and no localhost API URLs"
+fi
 
 step "Smoke test: full login flow through Envoy Gateway"
 LOGIN_RESP=$(curl -s -X POST -H "Host: identity.apollo.local" -H "Content-Type: application/json" \

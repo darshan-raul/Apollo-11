@@ -21,7 +21,7 @@ than dropping them.
 | **Workloads changed** | 10 (6 app Deployments + 4 StatefulSets) — probes on apps, resources on all 10, graceful shutdown on all 5 backends + 1 Python service, NGINX probe paths on the frontend |
 | **Workloads unchanged** | Envoy Gateway, MetalLB, seed Jobs, NetworkPolicies, ServiceAccounts, ConfigMap, Secret, namespaces |
 | **Code changes** | All 5 Go services + FastAPI identity + frontend NGINX config |
-| **Verify target** | **129/129 checks pass** (76 Stage 3 baseline + 53 new Stage 4 checks) |
+| **Verify target** | **130/130 checks pass** (43 carried baseline + 87 Stage 4 checks) |
 
 ---
 
@@ -233,7 +233,7 @@ stages/stage4/
     ├── apply.sh                # Stage 3 + apply k8s/pdb/ at step 4
     ├── teardown.sh             # Verbatim from stage 3
     ├── build-images.sh         # Builds stage4/code/ (only code differs)
-    └── verify.sh               # 129 checks (76 Stage 3 baseline + 53 Stage 4)
+    └── verify.sh               # 130 checks (43 carried baseline + 87 Stage 4)
 ```
 
 ---
@@ -243,7 +243,7 @@ stages/stage4/
 ```bash
 cd /home/darshan/projects/Apollo11/stages/stage4
 ./scripts/apply.sh        # ~3 min: builds images, applies 50+ manifests, waits for Gateway
-./scripts/verify.sh       # ~30s: 129 checks, prints Passed/Failed count
+./scripts/verify.sh       # ~30s: 130 checks, prints Passed/Failed count
 ./scripts/teardown.sh     # ~30s: deletes namespaces + controllers in safe order
 ```
 
@@ -255,21 +255,22 @@ hanging webhooks (see Stage 3 handoff §"Teardown order matters").
 
 ---
 
-## Verify (129 checks)
+## Verify (130 checks)
 
 | Group | Count | What it checks |
 |---|---|---|
-| Stage 3 baseline (namespaces, sts, PVCs, deps, controllers, gateway, routes, smoke) | 76 | Unchanged from Stage 3 — the access stack still works |
+| Carried baseline (namespaces, sts, PVCs, deployments, controllers, gateway, routes, smoke, seed data) | 43 | Proves the Stage 3 workload and access-stack behavior still works |
 | Probes configured on 6 apps | 18 | Each Deployment has startup/live/ready with HTTP path set |
 | Probes on 4 sts + no startupProbe | 12 | Each sts has liveness + readiness, no startupProbe |
 | Resources on 10 workloads | 10 | requests.{cpu,memory} + limits.{cpu,memory} all set |
 | QoS class is Guaranteed on 10 pods | 10 | `.status.qosClass` reports Guaranteed |
 | terminationGracePeriodSeconds | 10 | 30s for 6 apps, 60s for 4 sts |
-| PodDisruptionBudgets (booking + frontend) | 4 | PDB exists, minAvailable=1, status populated |
+| PodDisruptionBudgets (booking + frontend) | 4 | Two existence/minAvailable checks + two populated-status checks |
 | Live probe responses | 18 | curl from inside each pod → 3 probe paths × 6 apps |
-| Behavioural demo: graceful shutdown | 2 | Delete a booking pod, follow logs, see "Received SIGTERM" |
-| Behavioural demo: frontend restart | 2 | Delete frontend pod, replacement serves /healthz/ready |
-| **Total** | **129** | |
+| Behavioural demo: graceful shutdown | 2 | Delete a booking pod, follow logs, see "Received SIGTERM", replacement Ready |
+| Behavioural demo: frontend restart | 2 | Delete frontend pod, replacement Ready and serves /healthz/ready |
+| Frontend build-time API URL validation | 1 | Bundle contains all four `*.apollo.local` API hosts and no localhost API URLs |
+| **Total** | **130** | |
 
 ---
 

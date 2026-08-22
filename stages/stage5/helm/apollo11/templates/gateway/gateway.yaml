@@ -11,6 +11,7 @@ proxy. We don't override it; MetalLB assigns the IP from the configured
 pool.
 */ -}}
 {{- if .Values.gateway.enabled }}
+{{- if .Values.gateway.createClass }}
 ---
 # GatewayClass — referenced by every Gateway. The controller name must
 # match the Envoy Gateway controller's admission webhook.
@@ -22,6 +23,7 @@ metadata:
     {{- include "apollo11.labels" . | nindent 4 }}
 spec:
   controllerName: {{ .Values.gateway.controllerName }}
+{{- end }}
 ---
 # The Gateway itself. Listens on port 80 (HTTP). allowedRoutes.namespaces
 # is set to "All" so HTTPRoutes in any namespace can attach — but cross-

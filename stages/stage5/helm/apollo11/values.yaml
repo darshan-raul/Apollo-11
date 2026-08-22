@@ -297,6 +297,8 @@ pdb:
 # pointing at a real LoadBalancer IP.
 gateway:
   enabled: true
+  # GitOps environments share one platform-owned GatewayClass.
+  createClass: true
   controllerName: gateway.envoyproxy.io/gatewayclass-controller
   className: eg
   gatewayName: apollo-gateway

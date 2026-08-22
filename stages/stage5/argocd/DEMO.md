@@ -13,7 +13,7 @@ to provision the cluster and build images.
 
 **What you'll end up with:**
 
-- ArgoCD v2.13.2 running in your cluster
+- ArgoCD v3.5.1 running in your cluster
 - 1 AppProject (`apollo-airlines`) restricting scope
 - 3 Applications (`apollo11-dev`, `apollo11-staging`, `apollo11-prod`)
 - The Stage 5 Helm chart auto-syncing into the cluster
@@ -47,7 +47,7 @@ If `which argocd` returns nothing: `brew install argocd` or grab the binary
 from https://argo-cd.readthedocs.io/en/stable/cli_installation/.
 
 > **One thing to confirm before starting:** the `repoURL` in
-> `applications/*.yaml` is `https://github.com/darshan/Apollo11`. If your
+> `applications/*.yaml` is `https://github.com/darshan-raul/Apollo11.git`. If your
 > fork is at a different URL, set `GITOPS_REPO` or pass
 > `--repo-url https://github.com/<you>/Apollo11` to `bootstrap.sh`.
 
@@ -82,7 +82,7 @@ bash install.sh
 ```
 ▶ 0/6 Checking cluster
 ✓ cluster reachable
-▶ 1/6 Fetching ArgoCD v2.13.2 install manifest from upstream
+▶ 1/6 Fetching ArgoCD v3.5.1 install manifest from upstream
 ✓ fetched 1550 lines
 ▶ 2/6 Creating argocd namespace
 ✓ namespace argocd
@@ -161,7 +161,7 @@ application.argoproj.io/apollo11-prod created
 **Sanity check:**
 
 ```bash
-kubectl get applications -n apollo-airlines
+kubectl get applications -n argocd
 # NAME                SYNC STATUS   HEALTH STATUS
 # apollo11-dev        Synced        Healthy
 # apollo11-staging    Synced        Healthy
@@ -180,7 +180,7 @@ correct — see section 6.
 kubectl logs -n argocd -l app.kubernetes.io/name=argocd-application-controller -f --tail=20
 
 # 4.2 In another terminal: watch workloads
-kubectl get pods -n apollo-airlines-apps -w
+kubectl get pods -n apollo-airlines-dev-apps -w
 ```
 
 You should see, in order:
@@ -190,7 +190,7 @@ You should see, in order:
 2. `job/seed-identity-db`, `seed-flight-db`, `seed-booking-db` Complete
 3. `deployment/identity`, `flight`, `booking`, `search`, `notification`
    come up
-4. In `apollo-airlines-ui`, `deployment/frontend` comes up
+4. In `apollo-airlines-dev-ui`, `deployment/frontend` comes up
 5. ArgoCD flips `health.status` from `Progressing` to `Healthy`
 
 > **First-time slowness:** the StatefulSets each `initdb` from the
@@ -263,20 +263,20 @@ This is the demo. It's the single most important thing to internalize.
 ```bash
 # 6.1.1 Bump the booking deployment's image tag by hand
 kubectl set image deployment/booking booking=apollo11/booking:v999 \
-    -n apollo-airlines-apps
+    -n apollo-airlines-dev-apps
 # → deployment.apps/booking image updated
 
 # 6.1.2 Watch ArgoCD revert it (within ~3 minutes)
-kubectl get application apollo11-dev -n apollo-airlines -w
+kubectl get application apollo11-dev -n argocd -w
 # NAME             SYNC STATUS   HEALTH STATUS
 # apollo11-dev     Synced        Healthy
 # apollo11-dev     OutOfSync     Healthy      ← ArgoCD detected drift
 # apollo11-dev     Synced        Healthy      ← selfHeal kicked in
 
 # 6.1.3 Confirm the image is back
-kubectl get deployment booking -n apollo-airlines-apps \
+kubectl get deployment booking -n apollo-airlines-dev-apps \
     -o jsonpath='{.spec.template.spec.containers[0].image}'
-# → apollo11/booking:dev  (back to what the chart says)
+# → apollo11/booking:latest  (back to what the chart says)
 ```
 
 This is **the** GitOps promise. `kubectl apply` is no longer a
@@ -288,7 +288,7 @@ last person typed.
 ```bash
 # 6.2.1 Edit the values file
 $EDITOR stages/stage5/helm/apollo11/values-dev.yaml
-# ... change image.tag from `dev` to `dev-2025-06-11` ...
+# ... change image.tag from `latest` to `dev-2025-06-11` ...
 
 # 6.2.2 Commit + push
 git add stages/stage5/helm/apollo11/values-dev.yaml
@@ -299,7 +299,7 @@ git push
 # (ArgoCD polls the repo every 3 minutes by default. For an immediate
 # refresh, do `argocd app sync apollo11-dev --grpc-web`)
 
-kubectl get pods -n apollo-airlines-apps -l app=booking -w
+kubectl get pods -n apollo-airlines-dev-apps -l app=booking -w
 # You should see a new pod come up with the new image.
 
 # 6.2.4 Inspect the history
@@ -317,7 +317,7 @@ argocd app rollback apollo11-dev --grpc-web
 # → Rolled back to revision 0
 
 # 6.3.2 Watch the cluster converge
-kubectl get pods -n apollo-airlines-apps -l app=booking -w
+kubectl get pods -n apollo-airlines-dev-apps -l app=booking -w
 # Pod rolls back to the previous image.
 
 # 6.3.3 The rollback is a sync — it's recorded in history
@@ -359,8 +359,8 @@ argocd app sync apollo11-prod --grpc-web
 # sake of the demo. (Don't do this in real life — pin prod to a
 # release tag.)
 
-# Edit prod.yaml to use :dev
-sed -i 's|value: v1.0.0|value: dev|' applications/prod.yaml
+# For a disposable kind demo, re-bootstrap with the local image repository.
+bash scripts/bootstrap.sh --image-repository apollo11 --sync
 kubectl apply -f applications/prod.yaml
 # ArgoCD picks up the change within 3 minutes. Or:
 argocd app get apollo11-prod --grpc-web --refresh
@@ -381,31 +381,30 @@ argocd app sync apollo11-prod --grpc-web
 
 ## 8. Self-heal demo (drift detection) (2 minutes)
 
-This is a built-in check in `scripts/verify.sh`. The script:
-
-1. Picks the `booking` pod in `apollo-airlines-apps`
-2. `kubectl delete pod` (within 5s of the auto-replace, since replicas=2)
-3. Waits 5s
-4. Verifies the pod count is restored
+This is a built-in check in `scripts/verify.sh`. The script changes the dev
+booking Deployment from one replica to two, requests an immediate Argo
+comparison, and verifies automated self-heal restores the declarative value of
+one. This proves GitOps reconciliation rather than merely the Deployment
+controller replacing a deleted pod.
 
 ```bash
 bash scripts/verify.sh
 # Last section:
-# ▶ 5/5 Drift detection (delete a pod, watch ArgoCD re-create it)
-#   deleting pod booking-7c5b9f8d9d-xxxxx...
-# ✓ booking pods present after deletion (2)
+# ▶ 5/5 GitOps self-heal (change booking replicas, watch ArgoCD restore it)
+#   changing booking replicas from 1 to 2...
+# ✓ ArgoCD restored booking replicas to 1
 ```
 
-The deployment's replicaset controller does most of the work, but the
-point is: even if you'd deleted the *Deployment* itself, ArgoCD would
-recreate it within 3 minutes (selfHeal=true on dev).
+Unlike deleting a pod, this change cannot be repaired by the ReplicaSet
+controller: Argo CD must compare the live Deployment with Git and restore the
+declared replica count. That is the reconciliation behavior the test proves.
 
 To test that more dramatic case:
 
 ```bash
-kubectl delete deployment booking -n apollo-airlines-apps
+kubectl delete deployment booking -n apollo-airlines-dev-apps
 sleep 200  # wait for selfHeal
-kubectl get deployment booking -n apollo-airlines-apps
+kubectl get deployment booking -n apollo-airlines-dev-apps
 # → booking is back, with 1/1 ready
 ```
 
@@ -430,7 +429,7 @@ bash scripts/teardown.sh --purge
 Verify the cluster is clean:
 
 ```bash
-kubectl get applications -n apollo-airlines
+kubectl get applications -n argocd
 # → No resources found
 
 kubectl get ns | grep -E 'argocd|apollo-airlines'

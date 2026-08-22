@@ -9,10 +9,7 @@ set -e
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 STAGE_DIR="$(dirname "$SCRIPT_DIR")"
 K8S_DIR="$STAGE_DIR/k8s"
-CODE_DIR="$STAGE_DIR/code"
 CLUSTER="${CLUSTER:-apollo11}"
-REGISTRY="apollo11"
-SERVICES="identity flight booking search notification frontend"
 
 GREEN='\033[0;32m'; CYAN='\033[0;36m'; RED='\033[0;31m'; NC='\033[0m'
 step()  { echo -e "${CYAN}▶ $1${NC}"; }
@@ -26,26 +23,12 @@ fi
 ok "cluster reachable"
 
 step "1/10 Building + loading app images"
-if kind get clusters 2>/dev/null | grep -q "^${CLUSTER}$"; then
-  # Frontend: same VITE_* URLs as Stage 2 set 5 (MetalLB gives a real IP).
-  docker build -t "${REGISTRY}/frontend:latest" \
-    --build-arg VITE_IDENTITY_URL="http://identity.apollo.local" \
-    --build-arg VITE_FLIGHT_URL="http://flight.apollo.local" \
-    --build-arg VITE_BOOKING_URL="http://booking.apollo.local" \
-    --build-arg VITE_SEARCH_URL="http://search.apollo.local" \
-    "${CODE_DIR}/frontend/"
-  ok "frontend image built"
-
-  for svc in $SERVICES; do
-    if [[ -f "${CODE_DIR}/${svc}/Dockerfile" ]]; then
-      docker build -t "${REGISTRY}/${svc}:latest" "${CODE_DIR}/${svc}/"
-      kind load docker-image "${REGISTRY}/${svc}:latest" --name "$CLUSTER"
-      ok "loaded ${REGISTRY}/${svc}:latest"
-    fi
-  done
-else
-  echo "  Cluster '$CLUSTER' is not a kind cluster, skipping image build/load"
-fi
+# Keep all image construction in one script so the frontend is built exactly
+# once with the Stage 2 set-5 hostnames. The previous inline loop included
+# `frontend` and silently overwrote the correctly configured image with the
+# Dockerfile's localhost defaults.
+CLUSTER="$CLUSTER" bash "$SCRIPT_DIR/build-images.sh"
+ok "all 6 application images built and loaded"
 
 step "2/10 Namespaces + config + secrets"
 kubectl apply -f "$K8S_DIR/config/"

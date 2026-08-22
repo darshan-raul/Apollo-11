@@ -5,6 +5,7 @@ apiVersion: policy/v1
 kind: PodDisruptionBudget
 metadata:
   name: booking-pdb
+  namespace: apollo-airlines-apps
 spec:
   minAvailable: 2
   selector:
@@ -15,6 +16,7 @@ apiVersion: policy/v1
 kind: PodDisruptionBudget
 metadata:
   name: frontend-pdb
+  namespace: apollo-airlines-ui
 spec:
   minAvailable: 2
   selector:

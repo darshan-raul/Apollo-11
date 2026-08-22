@@ -1,11 +1,11 @@
 #!/bin/bash
-# Build all 6 Apollo Airlines service images + frontend.
+# Build all 6 Apollo Airlines application images (5 backends + frontend).
 #
 # Default tag is `latest` (matches the Helm chart default and the kustomize
 # base). The frontend image is rebuilt with the VITE_* URLs from the chart's
 # values.yaml so the rendered SPA and the HTTPRoute hostnames never drift.
 #
-#   ./scripts/build-images.sh                # build all 6 + frontend, load to kind
+#   ./scripts/build-images.sh                # build all 6, load to kind
 #   ./scripts/build-images.sh --skip-load    # build only
 #   ./scripts/build-images.sh --tag v1.2.3   # pin all images to a tag
 #   ./scripts/build-images.sh --cluster foo  # target a specific kind cluster
@@ -51,15 +51,29 @@ ALL_SERVICES="identity flight booking search notification frontend"
 # image and the HTTPRoutes never drift.
 extract_vite_url() {
     local key="$1"
-    awk -F'"' -v k="VITE_${key}_URL" '
-        $0 ~ "    "k":" { gsub(/^ +/, "", $2); print $2; exit }
+    awk -v k="$key" '
+        /^  viteUrls:/ { in_vite=1; next }
+        in_vite && $1 == k ":" {
+            value=$2
+            gsub(/^"|"$/, "", value)
+            print value
+            exit
+        }
+        in_vite && /^[^ ]/ { exit }
     ' "$CHART_DIR/values.yaml"
 }
 
-VITE_IDENTITY_URL=$(extract_vite_url IDENTITY)
-VITE_FLIGHT_URL=$(extract_vite_url FLIGHT)
-VITE_BOOKING_URL=$(extract_vite_url BOOKING)
-VITE_SEARCH_URL=$(extract_vite_url SEARCH)
+VITE_IDENTITY_URL=$(extract_vite_url identity)
+VITE_FLIGHT_URL=$(extract_vite_url flight)
+VITE_BOOKING_URL=$(extract_vite_url booking)
+VITE_SEARCH_URL=$(extract_vite_url search)
+
+for value_name in VITE_IDENTITY_URL VITE_FLIGHT_URL VITE_BOOKING_URL VITE_SEARCH_URL; do
+    if [[ -z "${!value_name}" ]]; then
+        echo "ERROR: could not read $value_name from $CHART_DIR/values.yaml" >&2
+        exit 1
+    fi
+done
 
 echo "=== Building Apollo Airlines service images (stage5) — tag: $TAG ==="
 
@@ -72,7 +86,8 @@ for svc in $SERVICES; do
             -f "$CODE_DIR/$svc/Dockerfile" \
             "$CODE_DIR/$svc/"
     else
-        echo "  WARNING: $CODE_DIR/$svc not found — skipping"
+        echo "ERROR: required service directory not found: $CODE_DIR/$svc" >&2
+        exit 1
     fi
 done
 
@@ -91,6 +106,9 @@ if [[ -d "$CODE_DIR/frontend" ]]; then
         --build-arg "VITE_SEARCH_URL=$VITE_SEARCH_URL" \
         -f "$CODE_DIR/frontend/Dockerfile" \
         "$CODE_DIR/frontend/"
+else
+    echo "ERROR: required frontend directory not found: $CODE_DIR/frontend" >&2
+    exit 1
 fi
 
 if [[ "$SKIP_KIND_LOAD" == "true" ]]; then
@@ -110,11 +128,12 @@ fi
 echo ""
 echo "=== Loading images into kind cluster '$CLUSTER' ==="
 for svc in $ALL_SERVICES; do
-    if docker images --format "{{.Repository}}:{{.Tag}}" | grep -q "^${REGISTRY}/${svc}:${TAG}$"; then
-        kind load docker-image "${REGISTRY}/${svc}:${TAG}" --name "$CLUSTER" 2>/dev/null && \
-            echo "  loaded ${REGISTRY}/${svc}:${TAG}" || \
-            echo "  (skip) ${REGISTRY}/${svc}:${TAG}"
+    if ! docker images --format "{{.Repository}}:{{.Tag}}" | grep -q "^${REGISTRY}/${svc}:${TAG}$"; then
+        echo "ERROR: image was not built: ${REGISTRY}/${svc}:${TAG}" >&2
+        exit 1
     fi
+    kind load docker-image "${REGISTRY}/${svc}:${TAG}" --name "$CLUSTER" >/dev/null
+    echo "  loaded ${REGISTRY}/${svc}:${TAG}"
 done
 
 echo ""

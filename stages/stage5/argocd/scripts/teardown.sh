@@ -8,8 +8,8 @@
 #
 #   2. --apps     Same as default. (Kept for clarity.)
 #
-#   3. --full     Delete Applications + AppProject + the apollo-airlines
-#                 tenant namespace + the entire argocd namespace.
+#   3. --full     Delete Applications + AppProject + six environment
+#                 namespaces + shared platform + the argocd namespace.
 #                 Equivalent to "I want ArgoCD and everything it owned gone."
 #
 #   4. --purge    Same as --full, plus deletes cluster-scoped CRDs that
@@ -30,7 +30,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ARGOCD_DIR="$(dirname "$SCRIPT_DIR")"
 APPS_DIR="$ARGOCD_DIR/applications"
 PROJECTS_DIR="$ARGOCD_DIR/projects"
-TENANT_NS="apollo-airlines"
+TENANT_NS="argocd"
 ARGOCD_NS="argocd"
 
 MODE="apps"   # apps | full | purge
@@ -42,8 +42,8 @@ Usage: $0 [--full | --purge]
 Options:
   (default)     Delete the 3 Applications. ArgoCD prunes the resources
                 they managed. AppProject + ArgoCD system remain.
-  --full        Also delete the AppProject, the apollo-airlines tenant
-                namespace, and the argocd system namespace.
+  --full        Also delete the AppProject, six tenant namespaces, shared
+                Envoy/MetalLB platform, and the argocd system namespace.
   --purge       Same as --full, plus delete cluster-scoped CRDs
                 (applications.argoproj.io, appprojects.argoproj.io, etc.)
   --help        Show this help
@@ -77,13 +77,31 @@ ok "cluster reachable"
 step "1/3 Deleting Applications (mode: $MODE)"
 DELETED=0
 for app_yaml in "$APPS_DIR"/*.yaml; do
-    name=$(basename "$app_yaml" .yaml)
+    name="apollo11-$(basename "$app_yaml" .yaml)"
     if kubectl get application "$name" -n "$TENANT_NS" >/dev/null 2>&1; then
         # The resources-finalizer on each Application causes ArgoCD to
         # delete all cluster resources it owned BEFORE removing the CR.
-        # We wait --timeout=180s because pruning StatefulSets + PVCs is slow.
+        # Poll explicitly so full/purge can recover if a missing Project or
+        # controller leaves the finalizer orphaned.
         echo "  deleting application $name (pruning managed resources)..."
-        kubectl delete application "$name" -n "$TENANT_NS" --timeout 180s 2>&1 | tail -1
+        kubectl delete application "$name" -n "$TENANT_NS" --wait=false >/dev/null
+        removed=false
+        for _ in $(seq 1 60); do
+            if ! kubectl get application "$name" -n "$TENANT_NS" >/dev/null 2>&1; then
+                removed=true
+                break
+            fi
+            sleep 2
+        done
+        if [[ "$removed" != "true" ]]; then
+            if [[ "$MODE" == "full" || "$MODE" == "purge" ]]; then
+                echo "  finalizer timed out; full teardown will remove tenant namespaces explicitly"
+                kubectl patch application "$name" -n "$TENANT_NS" --type merge \
+                    -p '{"metadata":{"finalizers":[]}}' >/dev/null
+            else
+                fail "application/$name did not finish pruning within 120s"
+            fi
+        fi
         DELETED=$((DELETED+1))
     else
         echo "  application $name not found — skipping"
@@ -92,22 +110,27 @@ done
 ok "$DELETED application(s) deleted"
 
 # ---------------------------------------------------------------------------
-# Step 2 (full/purge only): AppProject + tenant namespace
+# Step 2 (full/purge only): AppProject + isolated tenant platform
 # ---------------------------------------------------------------------------
 if [[ "$MODE" == "full" || "$MODE" == "purge" ]]; then
-    step "2/3 Deleting AppProject + tenant namespace"
+    step "2/3 Deleting AppProject + isolated tenant platform"
     if kubectl get appproject apollo-airlines -n "$TENANT_NS" >/dev/null 2>&1; then
         kubectl delete appproject apollo-airlines -n "$TENANT_NS" 2>&1 | tail -1
         ok "appproject/apollo-airlines deleted"
     else
         echo "  appproject/apollo-airlines not found — skipping"
     fi
-    if kubectl get ns "$TENANT_NS" >/dev/null 2>&1; then
-        kubectl delete ns "$TENANT_NS" --ignore-not-found --timeout 60s 2>&1 | tail -1
-        ok "namespace $TENANT_NS deleted"
-    else
-        echo "  namespace $TENANT_NS not found — skipping"
-    fi
+    kubectl delete gatewayclass eg --ignore-not-found >/dev/null 2>&1 || true
+    kubectl delete ipaddresspool apollo-pool -n metallb-system --ignore-not-found >/dev/null 2>&1 || true
+    kubectl delete l2advertisement apollo-l2 -n metallb-system --ignore-not-found >/dev/null 2>&1 || true
+    for ns in \
+        apollo-airlines-dev-apps apollo-airlines-dev-ui \
+        apollo-airlines-staging-apps apollo-airlines-staging-ui \
+        apollo-airlines-prod-apps apollo-airlines-prod-ui \
+        envoy-gateway-system metallb-system; do
+        kubectl delete namespace "$ns" --ignore-not-found --timeout=120s >/dev/null 2>&1 || true
+    done
+    ok "tenant namespaces and shared platform deleted"
 else
     step "2/3 Skipping (run with --full or --purge to remove AppProject)"
 fi
@@ -131,6 +154,9 @@ if [[ "$MODE" == "full" || "$MODE" == "purge" ]]; then
     if [[ "$MODE" == "purge" ]]; then
         echo "  purging cluster-scoped CRDs..."
         for crd in $(kubectl get crd -o name 2>/dev/null | grep -E 'argoproj\.io' || true); do
+            kubectl delete "$crd" --ignore-not-found 2>&1 | tail -1
+        done
+        for crd in $(kubectl get crd -o name 2>/dev/null | grep -E 'envoyproxy|gateway\.networking|metallb' || true); do
             kubectl delete "$crd" --ignore-not-found 2>&1 | tail -1
         done
         for cr in $(kubectl get clusterrole -o name 2>/dev/null | grep -E 'argocd|argo-cd' || true); do

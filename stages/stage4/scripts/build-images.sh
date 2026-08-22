@@ -1,5 +1,5 @@
 #!/bin/bash
-# Build + load all 7 service images into kind.
+# Build + load all 6 application images into kind.
 # Run from stages/stage4: ./scripts/build-images.sh
 set -e
 

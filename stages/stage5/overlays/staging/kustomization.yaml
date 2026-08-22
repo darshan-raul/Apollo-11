@@ -5,8 +5,6 @@ kind: Kustomization
 # Matches the production default replica count but with the rolling
 # `:latest` tag for fast feedback.
 
-namespace: apollo-airlines-apps
-
 labels:
   - includeSelectors: false
     pairs:

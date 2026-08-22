@@ -19,31 +19,39 @@ apiVersion: argoproj.io/v1alpha1
 kind: AppProject
 metadata:
   name: apollo-airlines
-  namespace: apollo-airlines
+  namespace: argocd
   labels:
     app.kubernetes.io/part-of: apollo-airlines
     app.kubernetes.io/component: gitops
 spec:
   description: |
     Apollo Airlines workload delivery.
-    Three Applications (dev, staging, prod) deploy the Stage 5 Helm chart
-    into apollo-airlines-apps and apollo-airlines-ui.
+    Three isolated Applications deploy the Stage 5 Helm chart into dedicated
+    dev, staging, and prod namespace pairs.
 
   # Source: this repo. For a kind/dev setup the repoURL is set on each
   # Application; for a real prod cluster, change to:
-  #   repoURL: https://github.com/darshan/Apollo11
+  #   repoURL: https://github.com/darshan-raul/Apollo11.git
   #   targetRevision: HEAD
   # and add a `sourceRepos` entry here. We use a wildcard for the demo
   # so the same AppProject works for both local-path sources and
   # git/HTTP sources.
   sourceRepos:
-    - '*'
+    - https://github.com/darshan-raul/Apollo11.git
 
   # Destination restrictions: only the in-cluster, only 2 namespaces.
   destinations:
-    - namespace: apollo-airlines-apps
+    - namespace: apollo-airlines-dev-apps
       server: https://kubernetes.default.svc
-    - namespace: apollo-airlines-ui
+    - namespace: apollo-airlines-dev-ui
+      server: https://kubernetes.default.svc
+    - namespace: apollo-airlines-staging-apps
+      server: https://kubernetes.default.svc
+    - namespace: apollo-airlines-staging-ui
+      server: https://kubernetes.default.svc
+    - namespace: apollo-airlines-prod-apps
+      server: https://kubernetes.default.svc
+    - namespace: apollo-airlines-prod-ui
       server: https://kubernetes.default.svc
 
   # Allow all namespaced kinds in those two namespaces.

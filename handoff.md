@@ -1,11 +1,290 @@
 ---
 title: "Apollo11 — Handoff Notes"
-description: "Stage 6 complete (OTEL SDK in 5 backends + real /metrics + Prometheus + Grafana + Tempo + Loki + Promtail). Helm chart renders 172 resources. All Go services compile-validated. Summary for the next agent working on Stage 7 (HPA, VPA, Redis cache, affinity/taints)."
+description: "Canonical rolling handoff for the evidence-driven completion of Apollo11 stages after Stage 4."
 ---
 
-# Apollo11 — Handoff Notes
+# Active completion program (2026-08-22)
 
-## Stage 6 Status: COMPLETE (manifests rendered, Go services compile-validated)
+This is the canonical rolling handoff for completing every stage after Stage 4.
+The older sections below are retained as historical context; their completion
+claims are not authoritative unless reproduced by the current verification
+program.
+
+## Current position
+
+- **Active checkpoint:** Stage 6 increment 1 — rebase the workload/package
+  baseline on trusted Stage 5 while preserving only reviewed telemetry deltas.
+- **Last trusted implementation boundary:** Stage 5, locally verified across
+  Helm, Kustomize, and Argo CD. Hosted GitHub Actions and GHCR publication
+  remain external evidence for the next push/tag.
+- **Stage 5 Helm evidence:** ✅ trusted. Clean build/install, **153 passed,
+  0 failed**, clean uninstall/purge, and zero namespace/PVC/related-CRD
+  residue.
+- **Stage 5 Kustomize evidence:** ✅ trusted for dev. Helm-free clean install,
+  **142 passed, 0 failed**, clean purge, and zero residue.
+- **Next checkpoint:** make Stage 6 with observability disabled reproduce the
+  Stage 5 Helm/Kustomize lifecycle, then enable metrics as the first isolated
+  observability slice.
+- **Worktree at start:** clean.
+- **Local platform:** Docker 29.5.1, 6 CPUs, ~15.4 GiB memory; no kind clusters
+  existed at the start. The stale kubectl context was `kind-strata-dev`.
+
+## Audit conclusions that govern the work
+
+- The original Stage 5 implementation was partial. Those defects are now
+  repaired and covered by clean lifecycle tests: full plain-manifest
+  Kustomize packaging, fatal readiness gates, consistent CI image contracts,
+  isolated Argo CD environments, and tested reconciliation/cleanup.
+- Stage 6 code compiles and its chart renders, but it inherits Stage 5 defects,
+  has duplicate `observability` values, and creates `ServiceMonitor` resources
+  without installing a functional Prometheus Operator/CRD stack.
+- Stage 7 code compiles and its chart renders, but it was not tested end to end,
+  inherits the earlier defects, and has duplicate `redis` and `observability`
+  top-level values.
+- Stages 8–11 contain legacy library-management code and must be rebuilt from
+  the last verified Apollo Airlines snapshot.
+- The standalone EKS stage is a structural prototype, not complete: the AWS
+  Load Balancer Controller is modeled as an EKS managed addon while Terraform
+  also references an undefined `helm_release.aws_load_balancer_controller`.
+
+## Verification discipline
+
+For every stage: static validation -> fresh-cluster apply -> behavior checks ->
+teardown/cleanup -> record exact evidence -> only then update README/AGENTS
+status and copy the snapshot forward.
+
+## Session log
+
+### 2026-08-22 — kickoff
+
+- Audited Stages 4–11 and the standalone EKS directory.
+- Confirmed all Go services in Stages 4–7 compile with a writable Go build
+  cache; the identity Python module compiles; Helm lint/render passes for the
+  Stage 5–7 charts. These are static checks only, not completion evidence.
+- Confirmed no kind cluster was present. Next command is to create `apollo11`
+  from `stages/ignition/kind-config.yaml`, then run Stage 4 apply/verify.
+
+### 2026-08-22 — Stage 4 fresh-cluster run
+
+- Created a three-node kind v1.35.0 cluster named `apollo11`.
+- Unmodified Stage 4 apply completed and the historical suite reported
+  **129 passed, 0 failed**.
+- Added a missing browser-facing check and found the deployed frontend bundle
+  contained `localhost:30081–30084` API URLs. Root cause: `apply.sh` built the
+  frontend correctly, then rebuilt it inside a generic service loop without
+  the `VITE_*` arguments, overwriting the good image.
+- Patched `apply.sh` to delegate all builds to `build-images.sh`, which builds
+  the frontend exactly once. Added a verifier assertion for all four
+  `*.apollo.local` API hosts and the absence of localhost API URLs. The Stage 4
+  target is now **130 checks**.
+- Re-applied from a clean application state. The corrected suite reported
+  **130 passed, 0 failed**, including Gateway routing, login, seed data,
+  probes, Guaranteed QoS, PDB status, graceful SIGTERM, replacement pods, and
+  frontend build-time API URLs.
+- Final teardown passed. Confirmed no Apollo/Envoy/MetalLB namespaces, PVCs,
+  or related CRDs remained. The three-node `apollo11` kind cluster itself is
+  intentionally retained for Stage 5 testing.
+- **Next:** audit rendered Stage 5 resources against Stage 4, then repair the
+  Helm/apply path before Kustomize and Argo CD.
+
+### 2026-08-22 — Stage 5 Helm increment
+
+- Compared the chart render with Stage 4. All **65/65 resource identities**
+  matched after excluding the separately installed controller bundles and the
+  reference-only NetworkPolicies. Repaired frontend `envFrom` and all three
+  probes, plus Redis probe timing; all ten workload controllers now match the
+  Stage 4 probe/resource/grace-period contract.
+- Added `helm/apollo11/values.schema.json`; `helm lint` passes for default,
+  dev, staging, and prod values.
+- Hardened `scripts/build-images.sh`: it now reads the real
+  `config.viteUrls.{identity,flight,booking,search}` keys, rejects missing
+  URLs/services/images, and fails on kind-load errors. This fixed the previous
+  blank frontend build arguments.
+- Hardened `scripts/apply.sh`: invalid modes, build failures, missing bundles,
+  CRD/webhook timeouts, Helm job waits, controller readiness, StatefulSets,
+  seed Jobs, and all Deployments are now fatal.
+- The first live install exposed an unexpanded database password in all three
+  `DATABASE_URL` values. Kubernetes expands only environment variables listed
+  earlier in the container `env` array; moved `POSTGRES_PASSWORD` before
+  `DATABASE_URL` in identity, flight, and booking templates.
+- The next run exposed a brittle Envoy `1/1` text check. The bundled Envoy
+  data-plane is correctly `2/2`; the apply script now waits on the Pod Ready
+  condition instead.
+- Corrected Helm upgrade completed with all workloads, four StatefulSets,
+  three seed Jobs, Envoy Gateway, and MetalLB ready.
+- Expanded `scripts/verify.sh` from 81 shallow checks to **153 checks**. New
+  gates cover frontend and StatefulSet probes, CPU+memory Guaranteed resources
+  on all ten workloads, all grace periods, environment-aware PDB behavior,
+  Secret variable expansion, 18 live probe calls, actual seed row counts,
+  frontend build-time URLs, Helm ownership/status, HTTPRoute attachment, six
+  external route responses, and a real login flow. Result: **153 passed,
+  0 failed** on Helm/dev.
+- The first purge exposed a Helm ownership bug: the chart managed its own
+  release namespace, so uninstall deleted the release Secret before Helm could
+  finish purging it. Removed the apps/release Namespace from chart ownership;
+  `--create-namespace` now owns that lifecycle, while the separate UI Namespace
+  remains a chart resource.
+- Final proof from a confirmed empty application state: full image build/load
+  succeeded, Helm revision 1 installed cleanly, **153 passed, 0 failed**,
+  `helm uninstall` completed, purge removed controllers/CRDs/PVCs, and the
+  residue query returned no resources. **Stage 5 Helm increment is trusted.**
+- Next: repair and independently verify Kustomize, CI/GHCR consistency, then
+  Argo CD environment isolation and reconciliation.
+
+### 2026-08-22 — Stage 5 Kustomize increment
+
+- Replaced the six-app-only base and runtime Helm-template mixing with a
+  committed **61-resource plain-manifest base** generated from the verified
+  chart (PDBs and controller bundles intentionally excluded). Helm is not
+  invoked by the Kustomize runtime path.
+- Removed the parent `namespace:` transformers that previously forced the
+  frontend into `apollo-airlines-apps`. The frontend Deployment, Service,
+  ServiceAccount, ConfigMap, Secret, HTTPRoute, and ReferenceGrant now remain
+  in `apollo-airlines-ui`.
+- Dev/staging/prod render successfully as 61/61/63 resources respectively;
+  prod adds the two namespace-correct PDBs. Frontend replica counts render as
+  1/2/3 and retain its startup probe and `frontend` ServiceAccount.
+- Rebuilt `apply.sh --mode kustomize`: it installs the prerequisite bundled
+  controllers, waits for CRDs/webhook, applies only the committed Kustomize
+  render, and treats every StatefulSet, seed Job, Deployment, and Envoy
+  readiness failure as fatal. Removed every runtime `helm template` call.
+- Clean dev install succeeded. The expanded cross-mode verifier reported
+  **142 passed, 0 failed**, including live probes, seed rows, routed frontend
+  URLs, all external routes, and login. Kustomize teardown/purge completed and
+  the residue query returned no namespaces, PVCs, or related CRDs.
+- **Stage 5 Kustomize dev increment is trusted.** Staging/prod have static
+  render coverage but cannot receive a local runtime completion claim until
+  their image-tag/registry and isolation semantics are finalized with CI and
+  Argo CD.
+
+- After the final Namespace-ownership refinement, repeated the complete dev
+  lifecycle from zero state: apply succeeded, **142/142** checks passed again,
+  purge succeeded, and no workload/controller namespace, PVC, or related CRD
+  remained. This is the final Kustomize evidence for the Stage 5 boundary.
+
+### 2026-08-22 — Stage 5 CI/GHCR increment
+
+- Consolidated CI into the active root `.github/workflows/main.yml`; removed
+  the inert nested workflow.
+- Corrected frontend Vite URL extraction to the chart's real
+  `config.viteUrls.*` keys and aligned the lowercase GHCR repository contract
+  across CI and production values.
+- CI now lints every Helm values file, renders all three Kustomize overlays,
+  detects drift in the committed plain-manifest base, shell-checks stage
+  scripts, and runs the Argo CD static validator before image publication.
+- Local workflow parsing, URL extraction, chart/base drift, and render checks
+  pass. The hosted Actions run and actual GHCR pushes intentionally await the
+  next repository push/tag.
+
+### 2026-08-22 — Stage 5 Argo CD increment
+
+- Vendored the official Argo CD **v3.5.1** install manifest and fixed the
+  installer so every namespaced object is applied to `argocd` using
+  server-side apply with conflict resolution.
+- Added a shared platform layer and isolated dev/staging/prod into six tenant
+  namespaces. Tenant Applications no longer contend for GatewayClass,
+  controller, or MetalLB ownership.
+- Added deterministic static validation: dev/staging render 58 tenant
+  resources each, prod renders 60, and no tenant chart can escape its assigned
+  namespace pair or create cluster-scoped resources.
+- Exercised GitOps against a temporary read-only local Git remote: dev and
+  staging reached **Synced/Healthy**, prod remained intentionally manual and
+  OutOfSync, and changing booking replicas from 1 to 2 was self-healed back to
+  1 by Argo CD. The verifier reported **74 passed, 0 failed**.
+- Fixed teardown application-name derivation and finalizer handling. A full
+  purge removed all three Applications, the AppProject, six tenant namespaces,
+  shared platform objects, Argo CD, and related CRDs with zero residue.
+- **Stage 5 is complete locally:** Helm **153/153**, Kustomize dev **142/142**,
+  and Argo CD **74/74**, each with a clean lifecycle. The retained kind cluster
+  is empty and ready for Stage 6.
+
+### 2026-08-22 — Stage 6 increment 0 audit
+
+- Stage 6 is an old fork rather than an additive snapshot of the repaired
+  Stage 5 boundary. It restores chart-owned Namespaces, lacks the values
+  schema and full Kustomize base, and carries the pre-repair scripts and Argo
+  definitions. These baseline regressions must be removed before testing any
+  observability feature.
+- `values.yaml` defines the complete `observability:` tree twice. YAML parsing
+  silently lets the second mapping replace the first, making configuration
+  edits non-local and unsafe.
+- All five application Deployments send OTLP to `otel-collector:4317`, but the
+  applications run in `apollo-airlines-apps` and the collector Service runs in
+  `apollo-observability`. That short DNS name resolves in the wrong namespace;
+  the endpoint must be the cross-namespace Service FQDN.
+- The chart creates five `ServiceMonitor` CRs but runs a plain Prometheus
+  Deployment. A plain Prometheus binary does not reconcile ServiceMonitors.
+  The fallback scrape configuration also filters on Service annotations while
+  the chart annotates Pod templates, so it discovers no application targets.
+- The official Prometheus Operator model confirms that a `Prometheus` custom
+  resource selects `ServiceMonitor` resources. Stage 6 will therefore vendor
+  a pinned operator bundle, declare a Prometheus CR, and verify target
+  discovery instead of retaining decorative CRs.
+- Promtail is end-of-life as of 2026-03-02. Stage 6 will use Grafana Alloy as
+  the node log agent while keeping Loki as the learning backend; documentation
+  will explain the intentional update from the original stage map.
+- The existing service code is potentially reusable but not yet trusted. It
+  has real counters/histograms and OTEL middleware, yet the trace topology,
+  metric label contracts, exporter failure behavior, and dashboard queries
+  need behavioral tests before being copied forward.
+
+## Stage 6 incremental implementation plan
+
+Each increment ends with static checks, a disposable-cluster behavior test,
+cleanup, and a handoff entry. A later increment may not mask failure in an
+earlier one.
+
+1. **Baseline rebase (increment 1).** Start Stage 6 packaging, scripts,
+   overlays, schema, CI validation, and Argo isolation from the completed Stage
+   5 files. Add an `observability.enabled=false` profile and prove it retains
+   Stage 5 resource identity, frontend URLs, probes/resources, routes, login,
+   and clean teardown. Acceptance: all applicable Stage 5 Helm and Kustomize
+   checks pass before any telemetry workload is enabled.
+2. **Application telemetry contract (increment 2).** Review and port the five
+   backend code deltas. Standardize metric names/labels, exclude `/metrics`
+   self-scrapes where appropriate, use the collector FQDN, propagate W3C trace
+   context on every downstream call, and flush exporters during graceful
+   shutdown. Acceptance: every `/metrics` endpoint contains changing
+   application series and one booking transaction preserves a trace ID across
+   booking, identity, flight, and notification.
+3. **Prometheus Operator + metrics (increment 3).** Vendor a pinned official
+   operator bundle, add explicit CRD/readiness lifecycle to apply/teardown,
+   replace the plain Prometheus Deployment with a `Prometheus` CR, and wire
+   ServiceMonitor/PrometheusRule selectors and RBAC. Add only dashboards/rules
+   backed by metrics actually installed in this lab. Acceptance: five healthy
+   application targets, successful PromQL for request rate/latency, loaded
+   rules, persistent storage, restart survival, and zero CRD residue on purge.
+4. **Collector + Tempo traces (increment 4).** Deploy a reachable OTLP
+   collector and Tempo with explicit health probes, bounded storage/resources,
+   and version-compatible configuration. Generate a booking flow and query
+   Tempo by trace ID. Acceptance: the expected cross-service parent/child span
+   graph is present, trace/log IDs agree, and collector export errors are zero.
+5. **Loki + Alloy logs (increment 5).** Replace the EOL Promtail prototype with
+   a pinned Grafana Alloy DaemonSet, least-privilege host mounts, Kubernetes
+   metadata, and Loki output. Acceptance: structured logs from all five
+   backends are queryable by namespace/service and can be correlated to the
+   trace created in increment 4.
+6. **Grafana and routed user experience (increment 6).** Provision Prometheus,
+   Tempo, and Loki datasources; validate five dashboard JSON documents against
+   real metric names; route `grafana.apollo.local` through the existing shared
+   Gateway with a ReferenceGrant; move credentials to a Secret. Acceptance:
+   Grafana health/API checks, datasource health, dashboard presence, and live
+   routed HTTP access.
+7. **Packaging/delivery closure (increment 7).** Regenerate full Kustomize
+   overlays, extend CI drift/static gates, and propagate the shared/tenant
+   ownership model into Argo CD without three environments fighting over the
+   operator or observability platform. Run full Helm, Kustomize-dev, and Argo
+   clean lifecycles, then update README/AGENTS counts and mark Stage 6 complete.
+
+---
+
+# Historical handoff archive (superseded)
+
+The material below records earlier sessions and may describe static rendering
+as completion. It is retained for provenance only; use the active program and
+evidence above for current status.
+
+## Historical Stage 6 claim: static render/compile only, not complete
 
 StatefulSets + 1Gi PVCs for all 4 stateful workloads (3 PostgreSQL + redis).
 Built on top of the Stage 2 set-4 access stack (Envoy Gateway + MetalLB),

@@ -5,8 +5,6 @@ kind: Kustomization
 # PodDisruptionBudgets applied for booking + frontend to guarantee the
 # flagship service and UI survive voluntary disruptions.
 
-namespace: apollo-airlines-apps
-
 labels:
   - includeSelectors: false
     pairs:
@@ -32,14 +30,20 @@ replicas:
 
 images:
   - name: apollo11/identity
+    newName: ghcr.io/darshan-raul/apollo11/identity
     newTag: v1.0.0
   - name: apollo11/flight
+    newName: ghcr.io/darshan-raul/apollo11/flight
     newTag: v1.0.0
   - name: apollo11/booking
+    newName: ghcr.io/darshan-raul/apollo11/booking
     newTag: v1.0.0
   - name: apollo11/search
+    newName: ghcr.io/darshan-raul/apollo11/search
     newTag: v1.0.0
   - name: apollo11/notification
+    newName: ghcr.io/darshan-raul/apollo11/notification
     newTag: v1.0.0
   - name: apollo11/frontend
+    newName: ghcr.io/darshan-raul/apollo11/frontend
     newTag: v1.0.0

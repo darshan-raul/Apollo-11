@@ -3,7 +3,7 @@ name: CI
 # Stage 5 CI: lint + validate the Helm chart and Kustomize overlays, build
 # container images, and push to GHCR on main / tag events.
 #
-# ArgoCD (out of stage 5 scope) handles deployment. This workflow is
+# The Stage 5 Argo CD module handles deployment. This workflow is
 # intentionally CD-light: we don't auto-deploy from CI.
 
 on:
@@ -16,7 +16,8 @@ on:
 
 env:
   REGISTRY: ghcr.io
-  IMAGE_PREFIX: ${{ github.repository }}
+  # GHCR package paths must be lowercase. Keep this aligned with values-prod.yaml.
+  IMAGE_PREFIX: darshan-raul/apollo11
 
 jobs:
   # ---------------------------------------------------------------------------
@@ -38,33 +39,51 @@ jobs:
         with:
           version: v1.30.0
 
-      - name: helm lint
+      - name: helm lint (all environments)
         working-directory: stages/stage5
-        run: helm lint helm/apollo11
+        run: |
+          helm lint helm/apollo11
+          for env in dev staging prod; do
+            helm lint helm/apollo11 -f "helm/apollo11/values-${env}.yaml"
+          done
 
       - name: helm template (smoke render)
         working-directory: stages/stage5
         run: |
           helm template apollo11 helm/apollo11 > /tmp/stage5-render.yaml
-          # Count resources — should be >100 (apps + 4 StatefulSets + Envoy CRDs + MetalLB CRDs)
-          echo "Resources rendered: $(grep -c '^kind:' /tmp/stage5-render.yaml)"
+          count=$(grep -c '^kind:' /tmp/stage5-render.yaml)
+          test "$count" -gt 100
+          echo "Resources rendered with bundled controllers: $count"
 
-      - name: kustomize build (dev)
+      - name: committed Kustomize base matches the verified chart
         working-directory: stages/stage5
-        run: kubectl kustomize overlays/dev > /tmp/stage5-kustomize-dev.yaml
+        run: |
+          helm template apollo11 helm/apollo11 \
+            --namespace apollo-airlines-apps \
+            --set gateway.envoy.bundleInstall=false \
+            --set metallb.bundleInstall=false \
+            --set pdb.enabled=false > /tmp/stage5-plain-base.yaml
+          tail -n +4 overlays/base/generated.yaml > /tmp/stage5-committed-base.yaml
+          diff -u /tmp/stage5-plain-base.yaml /tmp/stage5-committed-base.yaml
 
-      - name: kustomize build (staging)
+      - name: kustomize build (all environments)
         working-directory: stages/stage5
-        run: kubectl kustomize overlays/staging > /tmp/stage5-kustomize-staging.yaml
-
-      - name: kustomize build (prod)
-        working-directory: stages/stage5
-        run: kubectl kustomize overlays/prod > /tmp/stage5-kustomize-prod.yaml
+        run: |
+          for env in dev staging prod; do
+            kubectl kustomize "overlays/${env}" > "/tmp/stage5-kustomize-${env}.yaml"
+          done
+          test "$(grep -c '^kind:' /tmp/stage5-kustomize-dev.yaml)" -eq 61
+          test "$(grep -c '^kind:' /tmp/stage5-kustomize-staging.yaml)" -eq 61
+          test "$(grep -c '^kind:' /tmp/stage5-kustomize-prod.yaml)" -eq 63
 
       - name: shellcheck scripts
         run: |
           sudo apt-get install -y shellcheck
           shellcheck stages/stage5/scripts/*.sh
+          shellcheck stages/stage5/argocd/*.sh stages/stage5/argocd/scripts/*.sh
+
+      - name: validate isolated Argo CD Applications
+        run: bash stages/stage5/argocd/scripts/validate.sh
 
   # ---------------------------------------------------------------------------
   # 2. Build container images (matrix, no push on PRs)
@@ -94,10 +113,11 @@ jobs:
         if: matrix.service == 'frontend'
         run: |
           CHART=stages/stage5/helm/apollo11/values.yaml
-          echo "vite_id=$(grep VITE_IDENTITY_URL $CHART | awk -F'"' '{print $2}')" >> "$GITHUB_OUTPUT"
-          echo "vite_fl=$(grep VITE_FLIGHT_URL   $CHART | awk -F'"' '{print $2}')" >> "$GITHUB_OUTPUT"
-          echo "vite_bk=$(grep VITE_BOOKING_URL  $CHART | awk -F'"' '{print $2}')" >> "$GITHUB_OUTPUT"
-          echo "vite_sr=$(grep VITE_SEARCH_URL   $CHART | awk -F'"' '{print $2}')" >> "$GITHUB_OUTPUT"
+          read_url() { awk -v key="$1" '/^  viteUrls:/ { found=1; next } found && $1 == key ":" { gsub(/"/, "", $2); print $2; exit }' "$CHART"; }
+          echo "vite_id=$(read_url identity)" >> "$GITHUB_OUTPUT"
+          echo "vite_fl=$(read_url flight)" >> "$GITHUB_OUTPUT"
+          echo "vite_bk=$(read_url booking)" >> "$GITHUB_OUTPUT"
+          echo "vite_sr=$(read_url search)" >> "$GITHUB_OUTPUT"
 
       - name: Build (no push)
         uses: docker/build-push-action@v6
@@ -154,10 +174,21 @@ jobs:
         if: matrix.service == 'frontend'
         run: |
           CHART=stages/stage5/helm/apollo11/values.yaml
-          echo "vite_id=$(grep VITE_IDENTITY_URL $CHART | awk -F'"' '{print $2}')" >> "$GITHUB_OUTPUT"
-          echo "vite_fl=$(grep VITE_FLIGHT_URL   $CHART | awk -F'"' '{print $2}')" >> "$GITHUB_OUTPUT"
-          echo "vite_bk=$(grep VITE_BOOKING_URL  $CHART | awk -F'"' '{print $2}')" >> "$GITHUB_OUTPUT"
-          echo "vite_sr=$(grep VITE_SEARCH_URL   $CHART | awk -F'"' '{print $2}')" >> "$GITHUB_OUTPUT"
+          read_url() { awk -v key="$1" '/^  viteUrls:/ { found=1; next } found && $1 == key ":" { gsub(/"/, "", $2); print $2; exit }' "$CHART"; }
+          echo "vite_id=$(read_url identity)" >> "$GITHUB_OUTPUT"
+          echo "vite_fl=$(read_url flight)" >> "$GITHUB_OUTPUT"
+          echo "vite_bk=$(read_url booking)" >> "$GITHUB_OUTPUT"
+          echo "vite_sr=$(read_url search)" >> "$GITHUB_OUTPUT"
+
+      - name: Docker metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }}/${{ matrix.service }}
+          tags: |
+            type=sha,prefix=sha-
+            type=raw,value=latest,enable={{is_default_branch}}
+            type=ref,event=tag
 
       - name: Build and push
         uses: docker/build-push-action@v6
@@ -165,9 +196,8 @@ jobs:
           context: stages/stage5/code/${{ matrix.service }}
           file: stages/stage5/code/${{ matrix.service }}/Dockerfile
           push: true
-          tags: |
-            ${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }}/${{ matrix.service }}:sha-${{ github.sha }}
-            ${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }}/${{ matrix.service }}:latest
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
           build-args: |
             VITE_IDENTITY_URL=${{ steps.vite.outputs.vite_id }}
             VITE_FLIGHT_URL=${{ steps.vite.outputs.vite_fl }}

@@ -3,10 +3,10 @@
 #
 # What this does:
 #   1. Verifies ArgoCD is installed (run ../install.sh first if not)
-#   2. Creates the apollo-airlines namespace (for Applications)
-#   3. Registers the AppProject (security boundary)
-#   4. Registers the 3 Applications (dev, staging, prod)
-#   5. (optional) Triggers an initial sync of dev + staging
+#   2. Installs the shared Envoy/MetalLB platform and six tenant namespaces
+#   3. Registers the AppProject in ArgoCD's standard namespace
+#   4. Registers the 3 isolated Applications (dev, staging, prod)
+#   5. (optional) requests an immediate dev + staging reconciliation
 #
 # Idempotent: re-running does not duplicate or break anything.
 #
@@ -29,15 +29,18 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ARGOCD_DIR="$(dirname "$SCRIPT_DIR")"
 PROJECTS_DIR="$ARGOCD_DIR/projects"
 APPS_DIR="$ARGOCD_DIR/applications"
-TENANT_NS="apollo-airlines"
+TENANT_NS="argocd"
+CHART_DIR="$(dirname "$ARGOCD_DIR")/helm/apollo11"
+PLATFORM_FILE="$ARGOCD_DIR/platform/platform.yaml"
 
 SYNC=false
 INCLUDE_PROD=false
 REPO_URL_OVERRIDE=""
+IMAGE_REPOSITORY_OVERRIDE=""
 
 usage() {
     cat <<EOF
-Usage: $0 [--sync] [--include-prod] [--repo-url URL]
+Usage: $0 [--sync] [--include-prod] [--repo-url URL] [--image-repository REPO]
 
 Options:
   --sync            After registering the Applications, force-sync dev
@@ -46,7 +49,10 @@ Options:
   --include-prod    Also force-sync prod. NOT recommended outside demos —
                     prod is meant to be human-gated.
   --repo-url URL    Override source.repoURL on all 3 Applications.
-                    Default: https://github.com/darshan/Apollo11
+                    Default: https://github.com/darshan-raul/Apollo11.git
+  --image-repository REPO
+                    Override the shared image repository (for example
+                    apollo11 when images are preloaded into kind).
   --help            Show this help
 EOF
     exit 1
@@ -57,6 +63,7 @@ while [[ $# -gt 0 ]]; do
         --sync)         SYNC=true; shift ;;
         --include-prod) INCLUDE_PROD=true; shift ;;
         --repo-url)     REPO_URL_OVERRIDE="$2"; shift 2 ;;
+        --image-repository) IMAGE_REPOSITORY_OVERRIDE="$2"; shift 2 ;;
         --help)         usage ;;
         *) echo "Unknown option: $1"; usage ;;
     esac
@@ -76,24 +83,48 @@ if ! kubectl get ns argocd >/dev/null 2>&1; then
 fi
 ok "ArgoCD is installed"
 
-step "1/6 Creating tenant namespace $TENANT_NS"
-# ArgoCD Applications live in a tenant namespace, not the `argocd` system ns.
-kubectl create namespace "$TENANT_NS" --dry-run=client -o yaml | kubectl apply -f - >/dev/null
-ok "namespace $TENANT_NS"
+step "1/6 Installing shared Gateway/LoadBalancer platform"
+envoy_bundle="$CHART_DIR/bundles/envoy-gateway-install.yaml"
+metallb_bundle="$CHART_DIR/bundles/metallb-native.yaml"
+[[ -f "$envoy_bundle" ]] || fail "missing Envoy Gateway bundle: $envoy_bundle"
+[[ -f "$metallb_bundle" ]] || fail "missing MetalLB bundle: $metallb_bundle"
+[[ -f "$PLATFORM_FILE" ]] || fail "missing platform manifest: $PLATFORM_FILE"
+kubectl create namespace envoy-gateway-system --dry-run=client -o yaml | kubectl apply -f - >/dev/null
+kubectl apply --server-side -f "$envoy_bundle" >/dev/null
+kubectl create namespace metallb-system --dry-run=client -o yaml | kubectl apply -f - >/dev/null
+kubectl apply --server-side --force-conflicts -f "$metallb_bundle" >/dev/null
+kubectl wait --for=condition=Established crd/gateways.gateway.networking.k8s.io --timeout=60s >/dev/null || fail "Gateway API CRDs not established"
+kubectl wait --for=condition=Established crd/ipaddresspools.metallb.io --timeout=60s >/dev/null || fail "MetalLB CRDs not established"
+kubectl rollout status deployment/controller -n metallb-system --timeout=120s >/dev/null || fail "MetalLB controller not ready"
+kubectl apply -f "$PLATFORM_FILE" >/dev/null
+ok "shared platform and isolated namespaces ready"
 
 step "2/6 Registering AppProject"
 # AppProject must be created BEFORE the Applications, because Applications
 # reference it via spec.project.
-kubectl apply -f "$PROJECTS_DIR/project.yaml" 2>&1 | tail -2
+if [[ -n "$REPO_URL_OVERRIDE" ]]; then
+    project_tmp=$(mktemp)
+    sed -E "s|https://github.com/darshan-raul/Apollo11(\\.git)?|$REPO_URL_OVERRIDE|" \
+        "$PROJECTS_DIR/project.yaml" > "$project_tmp"
+    kubectl apply -f "$project_tmp" 2>&1 | tail -2
+    rm -f "$project_tmp"
+else
+    kubectl apply -f "$PROJECTS_DIR/project.yaml" 2>&1 | tail -2
+fi
 ok "AppProject apollo-airlines"
 
 step "3/6 Registering Applications"
 for app_yaml in "$APPS_DIR"/*.yaml; do
     name=$(basename "$app_yaml" .yaml)
-    if [[ -n "$REPO_URL_OVERRIDE" ]]; then
-        # In-place sed — simpler than templating and fine for a 3-file set
+    if [[ -n "$REPO_URL_OVERRIDE" || -n "$IMAGE_REPOSITORY_OVERRIDE" ]]; then
         tmp=$(mktemp)
-        sed "s|repoURL: https://github.com/darshan/Apollo11|repoURL: $REPO_URL_OVERRIDE|" "$app_yaml" > "$tmp"
+        cp "$app_yaml" "$tmp"
+        if [[ -n "$REPO_URL_OVERRIDE" ]]; then
+            sed -i -E "s|repoURL: https://github.com/darshan-raul/Apollo11(\\.git)?|repoURL: $REPO_URL_OVERRIDE|" "$tmp"
+        fi
+        if [[ -n "$IMAGE_REPOSITORY_OVERRIDE" ]]; then
+            sed -i "s|value: ghcr.io/darshan-raul/apollo11|value: $IMAGE_REPOSITORY_OVERRIDE|" "$tmp"
+        fi
         kubectl apply -f "$tmp" 2>&1 | tail -1
         rm -f "$tmp"
     else
@@ -111,10 +142,9 @@ for app in apollo11-dev apollo11-staging apollo11-prod; do
         # application_controller is the label selector for the controller pod
         # (not the application itself). We just wait for the App CR to have
         # an observedGeneration matching its metadata.generation.
-        gen=$(kubectl get application "$app" -n "$TENANT_NS" -o jsonpath='{.status.generation}' 2>/dev/null || echo "")
-        observed=$(kubectl get application "$app" -n "$TENANT_NS" -o jsonpath='{.status.observedGeneration}' 2>/dev/null || echo "")
-        if [[ -n "$observed" && "$observed" != "0" && "$gen" == "$observed" ]]; then
-            ok "$app reconciled (gen=$gen)"
+        reconciled=$(kubectl get application "$app" -n "$TENANT_NS" -o jsonpath='{.status.reconciledAt}' 2>/dev/null || echo "")
+        if [[ -n "$reconciled" ]]; then
+            ok "$app reconciled at $reconciled"
             break
         fi
         sleep 2
@@ -123,22 +153,13 @@ done
 
 if [[ "$SYNC" == "true" ]]; then
     step "5/6 Force-syncing dev + staging"
-    if command -v argocd >/dev/null 2>&1; then
-        # The CLI is preferred — it shows sync status as it runs.
-        argocd app sync apollo11-dev --grpc-web 2>&1 | tail -3 || true
-        argocd app sync apollo11-staging --grpc-web 2>&1 | tail -3 || true
-        if [[ "$INCLUDE_PROD" == "true" ]]; then
-            echo "  (--include-prod: syncing apollo11-prod as well)"
-            argocd app sync apollo11-prod --grpc-web 2>&1 | tail -3 || true
-        fi
-    else
-        # Fall back to kubectl: the Application controller respects an
-        # annotation. Or you can delete the Application and re-apply with
-        # operation init. Simplest: just wait for selfHeal to kick in.
-        echo "  argocd CLI not found — apps will auto-sync via selfHeal"
-        echo "  To force sync manually, install argocd CLI and run:"
-        echo "    argocd app sync apollo11-dev"
+    kubectl annotate application apollo11-dev -n "$TENANT_NS" argocd.argoproj.io/refresh=hard --overwrite >/dev/null
+    kubectl annotate application apollo11-staging -n "$TENANT_NS" argocd.argoproj.io/refresh=hard --overwrite >/dev/null
+    if [[ "$INCLUDE_PROD" == "true" ]]; then
+        echo "  (--include-prod only refreshes prod; prod remains manual-sync)"
+        kubectl annotate application apollo11-prod -n "$TENANT_NS" argocd.argoproj.io/refresh=hard --overwrite >/dev/null
     fi
+    ok "hard refresh requested"
 else
     step "5/6 Skipping force-sync (run with --sync to force)"
 fi

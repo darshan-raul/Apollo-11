@@ -62,13 +62,14 @@ spec:
           env:
             - name: PORT
               value: {{ $appCfg.port | quote }}
-            - name: DATABASE_URL
-              value: "postgresql://postgres:$(POSTGRES_PASSWORD)@{{ $name }}-db:5432/{{ $name }}?sslmode=disable"
             - name: POSTGRES_PASSWORD
               valueFrom:
                 secretKeyRef:
                   name: apollo-airlines-secrets
                   key: POSTGRES_PASSWORD
+            # Kubernetes expands only variables declared earlier in this list.
+            - name: DATABASE_URL
+              value: "postgresql://postgres:$(POSTGRES_PASSWORD)@{{ $name }}-db:5432/{{ $name }}?sslmode=disable"
             - name: JWT_SECRET
               valueFrom:
                 secretKeyRef:

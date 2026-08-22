@@ -3,30 +3,22 @@ kind: Kustomization
 
 # Plain-manifest base for Kustomize overlays (dev/staging/prod).
 #
-# Scope: the 6 application Deployments (identity, flight, booking, search,
-# notification) + the frontend Deployment. NO StatefulSets, NO access stack
-# (Envoy + MetalLB), NO seed jobs — those live in the Helm chart and are
-# applied separately by apply.sh --mode helm.
+# This is the complete application manifest set: namespaces, configuration,
+# ServiceAccounts, 4 StatefulSets, 6 Deployments, Services, seed Jobs, Gateway
+# API resources, and MetalLB configuration. Controller install bundles are
+# applied first by scripts/apply.sh because their CRDs must exist before these
+# custom resources can be submitted.
 #
-# Why a plain base, not Helm output: Kustomize can't consume Helm templates
-# directly. The chart is the production path; the kustomize base is a
-# lighter-weight alternative for dev/staging iteration.
-
-namespace: apollo-airlines-apps
+# generated.yaml is a committed plain-manifest snapshot of the verified chart;
+# Helm is not used by the Kustomize runtime path.
 
 labels:
-  - includeSelectors: true
+  - includeSelectors: false
+    includeTemplates: true
     pairs:
       app.kubernetes.io/name: apollo-airlines
       app.kubernetes.io/part-of: apollo-airlines
       app.kubernetes.io/managed-by: kustomize
 
 resources:
-  - apps/identity.yaml
-  - apps/flight.yaml
-  - apps/booking.yaml
-  - apps/search.yaml
-  - apps/notification.yaml
-  # The frontend lives in apollo-airlines-ui (separate ns), so it's a
-  # nested kustomization with its own namespace directive.
-  - ui
+  - generated.yaml

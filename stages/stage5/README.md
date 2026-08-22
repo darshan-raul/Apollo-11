@@ -17,7 +17,13 @@ images to GHCR on every change to `main`.
 | **Workloads changed** | None at the workload level — Stage 5 is a packaging layer. All 10 workloads are unchanged from Stage 4. |
 | **Workloads unchanged** | Probes, Guaranteed QoS, graceful SIGTERM, PDBs, 13 SAs, 3 PG + 1 Redis StatefulSets, seed jobs |
 | **Code changes** | None (snapshot of `stages/stage4/code/`) |
-| **Verify target** | **~70 checks pass** |
+| **Verify target** | **153 Helm checks / 142 Kustomize checks / 74 Argo CD checks** |
+
+**Verified 2026-08-22 on a fresh three-node kind v1.35.0 cluster:** Helm/dev
+153/153, Kustomize/dev 142/142, and Argo CD v3.5.1 74/74 (including real
+self-heal). Each path completed a full purge with no namespace, PVC, or related
+CRD residue. The active root GitHub Actions workflow is statically validated;
+its hosted run and first GHCR release publish occur on the next push/tag.
 
 ---
 
@@ -32,7 +38,7 @@ for the cluster. `helm install` provisions everything:
 helm/apollo11/
 ├── Chart.yaml                          (metadata: name, version 1.0.0)
 ├── values.yaml                         (configurable defaults)
-├── values-dev.yaml                     (env-specific: 1 replica, :dev tag, no PDBs)
+├── values-dev.yaml                     (env-specific: 1 replica, :latest tag, no PDBs)
 ├── values-staging.yaml                 (env-specific: 2 replicas, :latest tag, no PDBs)
 ├── values-prod.yaml                    (env-specific: 3 replicas, :v1.0.0 tag, full PDBs, GHCR pull)
 ├── bundles/
@@ -41,8 +47,7 @@ helm/apollo11/
 └── templates/
     ├── _helpers.tpl                    (label, selector, name helpers)
     ├── config/
-    │   ├── namespace.yaml              (2 ns: apps, ui)
-    │   ├── serviceaccount.yaml         (13 SAs)
+    │   ├── serviceaccount.yaml         (13 SAs; apply/bootstrap owns namespaces)
     │   ├── configmap.yaml
     │   └── secrets.yaml
     ├── infra/
@@ -86,7 +91,7 @@ helm/apollo11/
 | Setting | Default | Purpose |
 |---|---|---|
 | `image.tag` | `latest` | Pin to a specific version (e.g. `v1.2.3`) |
-| `image.repository` | `apollo11` | Override registry (e.g. `ghcr.io/darshan/apollo11`) |
+| `image.repository` | `apollo11` | Override registry (e.g. `ghcr.io/darshan-raul/apollo11`) |
 | `apps.<name>.replicas` | 2 | Per-app replica count |
 | `apps.<name>.tier` | `default` | Resource tier: `default` (100m/128Mi), `flagship` (200m/256Mi), `low` (50m/64Mi), `edge` (50m/64Mi) |
 | `pdb.enabled` | `true` | Toggle both PodDisruptionBudgets |
@@ -99,27 +104,19 @@ helm/apollo11/
 
 ```
 overlays/
-├── base/                # plain manifests for 6 apps + frontend
+├── base/
 │   ├── kustomization.yaml
-│   ├── apps/
-│   │   ├── identity.yaml
-│   │   ├── flight.yaml
-│   │   ├── booking.yaml
-│   │   ├── search.yaml
-│   │   └── notification.yaml
-│   └── ui/
-│       ├── kustomization.yaml
-│       └── frontend.yaml
-├── dev/                 # 1 replica, tag=dev
+│   └── generated.yaml   # complete committed 61-resource plain base
+├── dev/                 # 1 replica, tag=latest
 ├── staging/             # 2 replicas, tag=latest
 └── prod/                # 3 replicas, tag=v1.0.0, +PDBs
 ```
 
-The Kustomize base is a **plain manifest subset** of the chart — it only
-contains the 6 app Deployments + frontend. The chart's StatefulSets, seed
-jobs, and access stack are not part of the Kustomize path (apply.sh
-combines the overlay with the chart's infra templates so the apps can
-still resolve `identity-db:5432` etc.).
+The Kustomize base is a complete committed plain-manifest render of the
+verified chart: configuration, 13 ServiceAccounts, four StatefulSets, all
+Deployments/Services, seed Jobs, Gateway, routes, and MetalLB configuration.
+The runtime path never calls `helm template`; it installs only the prerequisite
+controller bundles before applying the selected overlay.
 
 ### 3. GitHub Actions CI
 
@@ -127,7 +124,8 @@ still resolve `identity-db:5432` etc.).
 
 1. **Lint job** — `helm lint`, `helm template` smoke render, `kubectl kustomize build` for all 3 overlays, `shellcheck` on the scripts.
 2. **Build job** — Matrix build of all 6 service images using `docker/build-push-action@v6` with GHA cache. Frontend gets `VITE_*` URLs from `values.yaml` injected as build args.
-3. **Push job** — Only on `main` push or `v*` tag, push to GHCR with `:sha-<gitsha>` + `:latest` tags.
+3. **Push job** — Only on `main` push or `v*` tag, push lowercase GHCR paths
+   with immutable `:sha-*`, `:latest` on main, and the actual `:v*` release tag.
 
 No deploy step — ArgoCD (separate tooling, see section 4 below) handles deploys from GHCR.
 
@@ -136,17 +134,17 @@ No deploy step — ArgoCD (separate tooling, see section 4 below) handles deploy
 `argocd/` (see `argocd/README.md` for the full architecture and
 `argocd/DEMO.md` for the step-by-step walkthrough):
 
-1. **AppProject** `apollo-airlines` — security boundary restricting
-   Applications to `apollo-airlines-apps` + `apollo-airlines-ui`,
-   denying cluster-scoped resources.
-2. **Three Applications** — `apollo11-dev` (automated sync), `apollo11-staging`
-   (automated), `apollo11-prod` (manual sync, pinned to `v1.0.0` tag).
-3. **Install** — `bash argocd/install.sh` (online by default,
-   `--offline` for air-gapped).
-4. **Bootstrap** — `bash argocd/scripts/bootstrap.sh --sync` registers
+1. **Platform layer** — one shared GatewayClass/MetalLB pool plus dedicated
+   dev, staging, and prod namespace pairs.
+2. **AppProject** `apollo-airlines` — security boundary restricting tenant
+   Applications to those six namespaces and denying cluster-scoped resources.
+3. **Three Applications** — `apollo11-dev` (automated sync), `apollo11-staging`
+   (automated), `apollo11-prod` (manual sync, `v1.0.0` image).
+4. **Install** — vendored Argo CD v3.5.1 via `bash argocd/install.sh --offline`.
+5. **Bootstrap** — `bash argocd/scripts/bootstrap.sh --sync` registers
    the project + apps and force-syncs dev + staging.
-5. **Verify** — `bash argocd/scripts/verify.sh` runs ~25 GitOps checks.
-6. **Teardown** — `bash argocd/scripts/teardown.sh [--full|--purge]`.
+6. **Verify** — `bash argocd/scripts/verify.sh` runs 74 GitOps checks.
+7. **Teardown** — `bash argocd/scripts/teardown.sh [--full|--purge]`.
 
 The ArgoCD module is **optional** — `apply.sh` + the CI workflow alone
 are a complete Stage 5. ArgoCD is the production delivery layer for
@@ -160,13 +158,13 @@ clusters that have one.
 |---|---|---|---|
 | **Deployment path** | Kustomize overlay (`apply.sh --mode kustomize --env dev`) | Kustomize overlay (`--env staging`) | Helm chart (recommended) or Kustomize (`--env prod`) |
 | **Replicas per app** | 1 | 2 | 3 |
-| **Image tag** | `:dev` | `:latest` | `:v1.0.0` (pinned) |
+| **Image tag** | `:latest` | `:latest` | `:v1.0.0` (pinned) |
 | **PodDisruptionBudgets** | No | No | Yes (`minAvailable: 2`) |
 | **Access stack** | Yes (via chart components during `apply.sh`) | Yes | Yes |
 | **StatefulSets** | Yes | Yes | Yes |
 | **Cost** | Lowest | Medium | Highest |
 
-**Dev** is the cheapest cluster — 1 replica each, dev image tag, no PDBs.
+**Dev** is the cheapest cluster — 1 replica each, latest image tag, no PDBs.
 Use it for local iteration and feature branches.
 
 **Staging** mirrors prod's default replica count but with rolling `:latest`
@@ -188,7 +186,7 @@ cd stages/stage5
 bash scripts/apply.sh
 
 # Use the env-specific values file
-bash scripts/apply.sh --env dev       # values-dev.yaml — 1 replica, :dev tag
+bash scripts/apply.sh --env dev       # values-dev.yaml — 1 replica, :latest tag
 bash scripts/apply.sh --env staging   # values-staging.yaml — 2 replicas, :latest
 bash scripts/apply.sh --env prod      # values-prod.yaml — 3 replicas, :v1.0.0, GHCR
 
@@ -208,7 +206,7 @@ bash scripts/teardown.sh --purge        # also delete namespaces + access stack
 ```bash
 cd stages/stage5
 
-# Dev overlay (1 replica, :dev tag)
+# Dev overlay (1 replica, :latest tag)
 bash scripts/apply.sh --mode kustomize --env dev
 
 # Staging overlay
@@ -250,7 +248,7 @@ bash install.sh
 # Register the project + 3 applications, force-sync dev + staging
 bash scripts/bootstrap.sh --sync
 
-# Verify (~25 GitOps checks)
+# Verify (74 GitOps checks)
 bash scripts/verify.sh
 
 # Teardown
@@ -278,24 +276,25 @@ stage5/
 │   ├── Chart.yaml
 │   ├── values.yaml
 │   ├── bundles/                     (Envoy + MetalLB install YAMLs)
-│   └── templates/                   (27 templates)
+│   └── templates/                   (19 templates)
 ├── overlays/                        # Kustomize overlays
-│   ├── base/                        (plain manifest base — 6 apps + frontend)
+│   ├── base/                        (complete 61-resource plain manifest base)
 │   ├── dev/
 │   ├── staging/
 │   └── prod/
 ├── scripts/
 │   ├── apply.sh                     (mode-aware: helm or kustomize)
 │   ├── teardown.sh                  (symmetric teardown + --purge)
-│   ├── verify.sh                    (~70 checks)
+│   ├── verify.sh                    (153 Helm / 142 Kustomize checks)
 │   └── build-images.sh              (6 services + frontend with VITE_*)
 ├── argocd/                          # GitOps delivery layer (optional)
 │   ├── README.md                    (concepts + architecture)
 │   ├── ARGOCD.md                    (complete ArgoCD reference guide)
 │   ├── DEMO.md                      (101 walkthrough)
-│   ├── install.sh                   (ArgoCD v2.13.2 install)
+│   ├── install.sh                   (vendored Argo CD v3.5.1 install)
 │   ├── uninstall.sh                 (ArgoCD removal)
 │   ├── bundles/                     (offline install manifest)
+│   ├── platform/                    (shared cluster resources + six namespaces)
 │   ├── projects/
 │   │   └── project.yaml             (AppProject: apollo-airlines)
 │   ├── applications/
@@ -304,9 +303,10 @@ stage5/
 │   │   └── prod.yaml                (manual sync, values-prod.yaml, pinned v1.0.0)
 │   └── scripts/
 │       ├── bootstrap.sh             (install + project + 3 apps, idempotent)
-│       ├── verify.sh                (~25 GitOps checks)
+│       ├── validate.sh              (static environment-isolation gate)
+│       ├── verify.sh                (74 live GitOps checks)
 │       └── teardown.sh              (apps-only, --full, --purge)
-├── .github/workflows/main.yml       # CI: lint + matrix build + GHCR push
+├── ../../.github/workflows/main.yml # active CI: lint + matrix build + GHCR push
 └── README.md                        (this file)
 ```
 
