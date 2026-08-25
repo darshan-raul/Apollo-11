@@ -1,29 +1,33 @@
 #!/bin/bash
-# Apply Stage 6: Mission Ops — full Apollo Airlines + observability stack.
+# Apply Stage 6: Apollo Airlines plus metrics, traces, logs, and Grafana.
+# Kustomize overlays (--mode kustomize).
 #
-# What this does (10 phases):
-#   1. Build + load the 6 backend images (with OTEL SDK)
-#   2. Pre-install: Envoy Gateway + MetalLB CRDs (from chart bundles)
-#   3. Wait for CRDs + MetalLB webhook
-#   4. Helm install the main chart (apps, infra, gateway, jobs, PDBs)
-#   5. Wait for StatefulSets + Deployments + frontend
-#   6. (Stage 6) Install the observability namespace + RBAC
-#   7. (Stage 6) Install OTEL Collector (DaemonSet) + Tempo
-#   8. (Stage 6) Install Prometheus + Grafana + Loki + Promtail
-#   9. (Stage 6) Install ServiceMonitors + Grafana HTTPRoute
-#  10. Wait for Prometheus to discover all 5 services + OTEL to receive
-#      a test trace
+# Modes:
+#   helm      — single `helm install` provisions the full cluster:
+#                 * 3 namespaces (apps, ui, observability)
+#                 * 13 ServiceAccounts
+#                 * 3 Postgres StatefulSets + headless SVCs + init ConfigMaps
+#                 * 1 Redis StatefulSet + headless SVC
+#                 * 6 app Deployments + 1 frontend Deployment
+#                 * 2 PodDisruptionBudgets (booking, frontend)
+#                 * 3 idempotent seed Jobs
+#                 * Envoy Gateway install + GatewayClass + Gateway
+#                 * 7 HTTPRoutes + cross-namespace ReferenceGrants
+#                 * MetalLB install + IPAddressPool + L2Advertisement
+#                 * Prometheus Operator, Prometheus, Grafana, Tempo, Loki,
+#                   OTEL Collector, Alloy, ServiceMonitors, and alert rules
 #
-# Total: ~7-10 minutes on a fresh kind cluster.
+#   kustomize — installs the prerequisite controller bundles, then applies the
+#               full committed plain-manifest base through overlays/{env}/.
+#               Helm is not used by this path.
 #
 # Usage:
-#   ./scripts/apply.sh                       # defaults
-#   ./scripts/apply.sh --mode kustomize     # dev iteration
-#   ./scripts/apply.sh --tag v1.2.3
+#   ./scripts/apply.sh                                  # helm install with defaults
+#   ./scripts/apply.sh --mode kustomize --env dev       # kustomize dev overlay
+#   ./scripts/apply.sh --env staging                    # helm with values-staging.yaml
+#   ./scripts/apply.sh --env prod --tag v1.2.3          # helm with values-prod.yaml + tag
 #   ./scripts/apply.sh --skip-build
-#   ./scripts/apply.sh --env prod
-#   ./scripts/apply.sh --skip-observability  # just the app, no observability stack
-
+#   ./scripts/apply.sh --tag v1.2.3
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -36,231 +40,391 @@ REGISTRY="apollo11"
 MODE="helm"
 ENV="dev"
 TAG="latest"
+TAG_EXPLICIT=false
 SKIP_BUILD=false
 RELEASE_NAME="apollo11"
-INCLUDE_OBSERVABILITY=true
+OBSERVABILITY_ENABLED=true
 
 usage() {
     cat <<EOF
-Usage: $0 [--mode MODE] [--env ENV] [--tag TAG] [--skip-build] [--skip-observability]
+Usage: $0 [--mode MODE] [--env ENV] [--tag TAG] [--skip-build] [--without-observability] [--release NAME]
 
 Options:
-  --mode MODE             helm (default) | kustomize
-  --env ENV               dev (default) | staging | prod
-  --tag TAG               Image tag (default: latest)
-  --skip-build            Reuse pre-built images; skip docker build
-  --skip-observability    Install only the app stack, not Prometheus/Grafana/etc.
-  --help                  Show this help
+  --mode MODE       helm (default) | kustomize
+  --env ENV         dev (default) | staging | prod
+                    helm mode:      picks helm/apollo11/values-\$ENV.yaml
+                    kustomize mode: picks overlays/\$ENV/
+  --tag TAG         Helm image-tag override (default: latest). Kustomize tags
+                    are declared by the selected overlay and must match.
+  --skip-build      Reuse pre-built images; skip the docker build step
+  --without-observability  Install only the trusted Stage 5-compatible baseline
+  --release NAME    Helm release name (default: apollo11)
+  --help            Show this help
+
+Examples:
+  $0                                          # helm install (defaults: tag=latest, no env file)
+  $0 --env dev                                # helm with values-dev.yaml (1 replica, tag=latest)
+  $0 --env staging --tag latest               # helm with values-staging.yaml
+  $0 --env prod --tag v1.2.3                  # helm with values-prod.yaml
+  $0 --mode kustomize --env dev               # kustomize overlays/dev/
 EOF
     exit 1
 }
 
 while [[ $# -gt 0 ]]; do
     case $1 in
-        --mode)               MODE="$2"; shift 2 ;;
-        --env)                ENV="$2"; shift 2 ;;
-        --tag)                TAG="$2"; shift 2 ;;
-        --skip-build)         SKIP_BUILD=true; shift ;;
-        --skip-observability) INCLUDE_OBSERVABILITY=false; shift ;;
-        --help)               usage ;;
+        --mode)        MODE="$2"; shift 2 ;;
+        --env)         ENV="$2"; shift 2 ;;
+        --tag)         TAG="$2"; TAG_EXPLICIT=true; shift 2 ;;
+        --skip-build)  SKIP_BUILD=true; shift ;;
+        --without-observability) OBSERVABILITY_ENABLED=false; shift ;;
+        --release)     RELEASE_NAME="$2"; shift 2 ;;
+        --help)        usage ;;
         *) echo "Unknown option: $1"; usage ;;
     esac
 done
 
+# Validate env early so a typo doesn't surface mid-install
+case "$ENV" in
+    dev|staging|prod) ;;
+    *) echo "Invalid --env '$ENV' (expected dev, staging, or prod)"; usage ;;
+esac
+case "$MODE" in
+    helm|kustomize) ;;
+    *) echo "Invalid --mode '$MODE' (expected helm or kustomize)"; usage ;;
+esac
+
+if [[ "$MODE" == "kustomize" ]]; then
+    if [[ "$ENV" == "prod" ]]; then
+        expected_tag="v1.0.0"
+        # Production references immutable GHCR images; there is no useful
+        # local kind image to build or load for this overlay.
+        SKIP_BUILD=true
+    else
+        expected_tag="latest"
+    fi
+    if [[ "$TAG_EXPLICIT" == "true" && "$TAG" != "$expected_tag" ]]; then
+        echo "Kustomize overlay '$ENV' declares image tag '$expected_tag', not '$TAG'."
+        exit 1
+    fi
+    TAG="$expected_tag"
+fi
+
+# Colors
 GREEN='\033[0;32m'; CYAN='\033[0;36m'; RED='\033[0;31m'; NC='\033[0m'
 step()  { echo -e "${CYAN}▶ $1${NC}"; }
 ok()    { echo -e "${GREEN}✓ $1${NC}"; }
 fail()  { echo -e "${RED}✗ $1${NC}"; exit 1; }
 
-step "0/10 Checking cluster"
-if ! kubectl cluster-info >/dev/null 2>&1; then
-    fail "kubectl cannot reach a cluster"
-fi
-ok "cluster reachable"
+install_platform_bundles() {
+    local envoy_bundle="$CHART_DIR/bundles/envoy-gateway-install.yaml"
+    local metallb_bundle="$CHART_DIR/bundles/metallb-native.yaml"
+    local crds_ready=false
+    local endpoints=""
 
-# ----------------------------------------------------------------------------
-# Phase 1: build images
-# ----------------------------------------------------------------------------
-if [[ "$SKIP_BUILD" != "true" ]]; then
-    step "1/10 Building + loading images (tag: $TAG)"
-    bash "$SCRIPT_DIR/build-images.sh" --tag "$TAG" --cluster "$CLUSTER" 2>&1 | tail -5 || \
-        echo "  (image build warnings — continuing)"
-else
-    step "1/10 Skipping build (--skip-build)"
-fi
+    [[ -f "$envoy_bundle" ]] || fail "missing Envoy Gateway bundle: $envoy_bundle"
+    [[ -f "$metallb_bundle" ]] || fail "missing MetalLB bundle: $metallb_bundle"
 
-# ----------------------------------------------------------------------------
-# Phase 2: pre-install CRD bundles (Envoy + MetalLB)
-# ----------------------------------------------------------------------------
-step "2/10 Pre-install: Envoy Gateway + MetalLB CRD bundles"
-if [[ -f "$CHART_DIR/bundles/envoy-gateway-install.yaml" ]]; then
     kubectl create namespace envoy-gateway-system --dry-run=client -o yaml | kubectl apply -f - >/dev/null
-    kubectl apply --server-side -f "$CHART_DIR/bundles/envoy-gateway-install.yaml" 2>&1 | tail -1
-    ok "Envoy Gateway CRDs"
-fi
-if [[ -f "$CHART_DIR/bundles/metallb-native.yaml" ]]; then
+    kubectl apply --server-side -f "$envoy_bundle" 2>&1 | tail -2
+    ok "Envoy Gateway bundle applied"
+
     kubectl create namespace metallb-system --dry-run=client -o yaml | kubectl apply -f - >/dev/null
-    kubectl apply --server-side --force-conflicts -f "$CHART_DIR/bundles/metallb-native.yaml" 2>&1 | tail -1
-    ok "MetalLB CRDs"
-fi
+    kubectl apply --server-side --force-conflicts -f "$metallb_bundle" 2>&1 | tail -2
+    ok "MetalLB bundle applied"
 
-# ----------------------------------------------------------------------------
-# Phase 3: wait for CRDs + MetalLB webhook
-# ----------------------------------------------------------------------------
-step "3/10 Waiting for CRD registration"
-for i in $(seq 1 10); do
-    if kubectl get crd gateways.gateway.networking.k8s.io >/dev/null 2>&1 && \
-       kubectl get crd ipaddresspools.metallb.io >/dev/null 2>&1; then
-        ok "CRDs registered"
-        break
-    fi
-    sleep 3
-done
-
-step "3b/10 Waiting for MetalLB webhook"
-for i in $(seq 1 20); do
-    endpoints=$(kubectl get endpoints metallb-webhook-service -n metallb-system -o jsonpath='{.subsets[0].addresses[0].ip}' 2>/dev/null || echo "")
-    if [[ -n "$endpoints" ]]; then
-        ok "MetalLB webhook endpoint ready ($endpoints)"
-        break
-    fi
-    sleep 3
-done
-
-# ----------------------------------------------------------------------------
-# Phase 4: helm install
-# ----------------------------------------------------------------------------
-step "4/10 Helm install (release: $RELEASE_NAME, env: $ENV)"
-HELM_CMD=(helm upgrade --install "$RELEASE_NAME" "$CHART_DIR"
-    --namespace apollo-airlines-apps
-    --create-namespace
-    --set image.tag="$TAG"
-    --set gateway.envoy.bundleInstall=false
-    --set metallb.bundleInstall=false
-    --wait --timeout 10m)
-if [[ -f "$CHART_DIR/values-${ENV}.yaml" ]]; then
-    HELM_CMD+=(-f "$CHART_DIR/values-${ENV}.yaml")
-    echo "  using values file: values-${ENV}.yaml"
-fi
-"${HELM_CMD[@]}" 2>&1 | tail -5
-ok "helm install complete"
-
-# ----------------------------------------------------------------------------
-# Phase 5: wait for workloads
-# ----------------------------------------------------------------------------
-step "5/10 Waiting for StatefulSets (3 PG + 1 Redis)"
-for sts in identity-db flight-db booking-db redis; do
-    kubectl wait --for=jsonpath='{.status.readyReplicas}'=1 \
-        -n apollo-airlines-apps "statefulset/$sts" --timeout=120s 2>/dev/null && \
-        ok "statefulset/$sts ready" || \
-        echo "  (warn) statefulset/$sts not ready"
-done
-
-step "5b/10 Waiting for seed jobs"
-for job in seed-identity-db seed-flight-db seed-booking-db; do
-    kubectl wait --for=condition=Complete -n apollo-airlines-apps "job/$job" --timeout=120s 2>/dev/null && \
-        ok "job/$job Complete" || \
-        echo "  (warn) job/$job not complete"
-done
-
-step "5c/10 Waiting for app Deployments + frontend"
-for dep in identity flight booking search notification; do
-    kubectl wait --for=jsonpath='{.status.readyReplicas}'=1 \
-        -n apollo-airlines-apps "deployment/$dep" --timeout=120s 2>/dev/null && \
-        ok "deployment/$dep ready" || \
-        echo "  (warn) deployment/$dep not ready"
-done
-kubectl wait --for=jsonpath='{.status.readyReplicas}'=1 \
-    -n apollo-airlines-ui "deployment/frontend" --timeout=120s 2>/dev/null && \
-    ok "deployment/frontend ready" || \
-    echo "  (warn) deployment/frontend not ready"
-
-# ----------------------------------------------------------------------------
-# Phases 6-9: Observability stack (Stage 6)
-# ----------------------------------------------------------------------------
-if [[ "$INCLUDE_OBSERVABILITY" == "true" ]]; then
-    step "6/10 Installing observability namespace + RBAC"
-    kubectl apply -f "$CHART_DIR/templates/observability/namespace.yaml" 2>&1 | tail -1
-    kubectl apply -f "$CHART_DIR/templates/observability/serviceaccount.yaml" 2>&1 | tail -1
-    ok "observability namespace + ServiceAccount + ClusterRole"
-
-    step "7/10 Installing OTEL Collector + Tempo"
-    kubectl apply -f "$CHART_DIR/templates/observability/otel-collector/config.yaml" 2>&1 | tail -1
-    kubectl apply -f "$CHART_DIR/templates/observability/otel-collector/daemonset.yaml" 2>&1 | tail -2
-    kubectl apply -f "$CHART_DIR/templates/observability/tempo/config.yaml" 2>&1 | tail -1
-    kubectl apply -f "$CHART_DIR/templates/observability/tempo/deployment.yaml" 2>&1 | tail -1
-    ok "OTEL Collector + Tempo manifests applied"
-
-    step "8/10 Installing Prometheus + Grafana + Loki + Promtail"
-    kubectl apply -f "$CHART_DIR/templates/observability/prometheus/config.yaml" 2>&1 | tail -1
-    kubectl apply -f "$CHART_DIR/templates/observability/prometheus/rules.yaml" 2>&1 | tail -1
-    kubectl apply -f "$CHART_DIR/templates/observability/prometheus/deployment.yaml" 2>&1 | tail -1
-    kubectl apply -f "$CHART_DIR/templates/observability/grafana/datasources.yaml" 2>&1 | tail -1
-    for d in overview booking errors saturation trace-viewer; do
-        kubectl apply -f "$CHART_DIR/templates/observability/grafana/dashboard-${d}.yaml" 2>&1 | tail -1
-    done
-    kubectl apply -f "$CHART_DIR/templates/observability/grafana/deployment.yaml" 2>&1 | tail -1
-    kubectl apply -f "$CHART_DIR/templates/observability/loki/config.yaml" 2>&1 | tail -1
-    kubectl apply -f "$CHART_DIR/templates/observability/loki/promtail-config.yaml" 2>&1 | tail -1
-    kubectl apply -f "$CHART_DIR/templates/observability/loki/deployment.yaml" 2>&1 | tail -2
-    ok "Prometheus + Grafana + Loki + Promtail applied"
-
-    step "9/10 Installing ServiceMonitors + Grafana HTTPRoute"
-    for app in identity flight booking search notification; do
-        kubectl apply -f "$CHART_DIR/templates/observability/servicemonitors/${app}-sm.yaml" 2>&1 | tail -1
-    done
-    kubectl apply -f "$CHART_DIR/templates/observability/ingress/grafana-route.yaml" 2>&1 | tail -2
-    ok "ServiceMonitors + Grafana HTTPRoute"
-
-    step "10/10 Waiting for observability pods"
-    for pod in prometheus grafana tempo loki otel-collector; do
-        # OTEL collector is a DaemonSet, others are Deployments
-        if [[ "$pod" == "otel-collector" ]]; then
-            for i in $(seq 1 20); do
-                if kubectl get pods -n apollo-observability -l "app.kubernetes.io/name=$pod" --no-headers 2>/dev/null | grep -q "1/1"; then
-                    ok "$pod 1/1 Ready"
-                    break
-                fi
-                sleep 3
-            done
-        else
-            for i in $(seq 1 20); do
-                if kubectl get pods -n apollo-observability -l "app.kubernetes.io/name=$pod" --no-headers 2>/dev/null | grep -q "1/1"; then
-                    ok "$pod 1/1 Ready"
-                    break
-                fi
-                sleep 3
-            done
-        fi
-    done
-    for i in $(seq 1 20); do
-        if kubectl get pods -n apollo-observability -l "app.kubernetes.io/name=promtail" --no-headers 2>/dev/null | grep -q "1/1"; then
-            ok "promtail 1/1 Ready"
+    for i in 1 2 3 4 5 6 7 8 9 10; do
+        if kubectl get crd gateways.gateway.networking.k8s.io >/dev/null 2>&1 && \
+           kubectl get crd ipaddresspools.metallb.io >/dev/null 2>&1; then
+            crds_ready=true
             break
         fi
         sleep 3
     done
+    [[ "$crds_ready" == "true" ]] || fail "Envoy Gateway/MetalLB CRDs did not register within 30s"
+    ok "platform CRDs registered"
 
-    step "10b/10 Waiting for Prometheus to discover 5 services"
-    for i in $(seq 1 30); do
-        # After 60s of Prometheus running, query its targets
-        sleep 5
-        up_count=$(kubectl exec -n apollo-observability deploy/prometheus -- \
-            wget -qO- 'http://localhost:9090/api/v1/query?query=up' 2>/dev/null | \
-            grep -oE '"service":"[a-z]+"' | wc -l || echo 0)
-        if [[ "$up_count" -ge 5 ]]; then
-            ok "Prometheus has discovered $up_count services"
-            break
-        fi
-        if [[ $i -eq 30 ]]; then
-            echo "  (warn) Prometheus has only discovered $up_count services after 150s"
-        fi
+    for i in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20; do
+        endpoints=$(kubectl get endpoints metallb-webhook-service -n metallb-system -o jsonpath='{.subsets[0].addresses[0].ip}' 2>/dev/null || echo "")
+        [[ -n "$endpoints" ]] && break
+        sleep 3
     done
+    [[ -n "$endpoints" ]] || fail "MetalLB webhook did not become ready within 60s"
+    ok "MetalLB webhook endpoint ready ($endpoints)"
+}
+
+install_observability_operator() {
+    local operator_bundle="$STAGE_DIR/bundles/prometheus-operator-v0.93.0.yaml"
+    [[ -f "$operator_bundle" ]] || fail "missing Prometheus Operator bundle: $operator_bundle"
+    kubectl create namespace apollo-observability --dry-run=client -o yaml | kubectl apply -f - >/dev/null
+    kubectl apply --server-side --force-conflicts -f "$operator_bundle" >/dev/null
+    kubectl wait --for=condition=Established crd/prometheuses.monitoring.coreos.com --timeout=90s >/dev/null || \
+        fail "Prometheus CRD did not become Established"
+    kubectl rollout status deployment/prometheus-operator -n apollo-observability --timeout=180s >/dev/null || \
+        fail "Prometheus Operator did not become ready"
+    ok "Prometheus Operator v0.93.0 ready"
+}
+
+wait_observability() {
+    [[ "$OBSERVABILITY_ENABLED" == "true" ]] || return 0
+    step "Waiting for Stage 6 observability workloads"
+    for dep in grafana loki tempo; do
+        kubectl rollout status -n apollo-observability "deployment/$dep" --timeout=240s >/dev/null || \
+            fail "deployment/$dep did not become ready"
+        ok "deployment/$dep ready"
+    done
+    for ds in otel-collector alloy; do
+        kubectl rollout status -n apollo-observability "daemonset/$ds" --timeout=240s >/dev/null || \
+            fail "daemonset/$ds did not become ready"
+        ok "daemonset/$ds ready"
+    done
+    kubectl rollout status -n apollo-observability statefulset/prometheus-apollo --timeout=240s >/dev/null || \
+        fail "Prometheus StatefulSet did not become ready"
+    ok "statefulset/prometheus-apollo ready"
+}
+
+step "0/8 Checking cluster"
+if ! kubectl cluster-info >/dev/null 2>&1; then
+    fail "kubectl cannot reach a cluster. Did you 'kind create cluster'?"
+fi
+ok "cluster reachable"
+
+# ---------------------------------------------------------------------------
+# Phase 1: build + load images
+# ---------------------------------------------------------------------------
+if [[ "$SKIP_BUILD" != "true" ]]; then
+    step "1/8 Building + loading images (tag: $TAG)"
+    bash "$SCRIPT_DIR/build-images.sh" --tag "$TAG" --cluster "$CLUSTER"
+    ok "all 6 application images built and loaded"
+else
+    step "1/8 Skipping build (--skip-build)"
 fi
 
-ok "Stage 6 apply complete"
-echo ""
-echo "  Next: bash scripts/verify.sh"
-echo "  Open Grafana: kubectl port-forward svc/grafana -n apollo-observability 3000:3000 &"
-echo "  Open Prometheus: kubectl port-forward svc/prometheus -n apollo-observability 9090:9090 &"
-echo "  Run a trace test: bash scripts/trace-test.sh"
+# ---------------------------------------------------------------------------
+# Phase 2: mode-specific apply
+# ---------------------------------------------------------------------------
+if [[ "$MODE" == "helm" ]]; then
+    # ---------------------------------------------------------------------
+    # Helm: full one-shot install
+    # ---------------------------------------------------------------------
+    # The chart bundles the Envoy Gateway + MetalLB install manifests.
+    # These need to be applied BEFORE `helm install` because the chart
+    # creates GatewayClass / IPAddressPool / L2Advertisement / HTTPRoute
+    # resources that depend on the CRDs. If we install them in the same
+    # transaction as those custom resources, the API server hasn't
+    # registered the CRDs yet and we get "no matches for kind" errors.
+    step "2/8 Pre-install: CRD bundle (Envoy Gateway + MetalLB)"
+    # Both bundles use --server-side for the >256KB last-applied-config
+    # workaround. MetalLB needs --force-conflicts because its webhook
+    # manages its own CA.
+    ENVOY_BUNDLE="$CHART_DIR/bundles/envoy-gateway-install.yaml"
+    METALLB_BUNDLE="$CHART_DIR/bundles/metallb-native.yaml"
+    [[ -f "$ENVOY_BUNDLE" ]] || fail "missing Envoy Gateway bundle: $ENVOY_BUNDLE"
+    [[ -f "$METALLB_BUNDLE" ]] || fail "missing MetalLB bundle: $METALLB_BUNDLE"
+
+    kubectl create namespace envoy-gateway-system --dry-run=client -o yaml | kubectl apply -f - >/dev/null
+    kubectl apply --server-side -f "$ENVOY_BUNDLE" 2>&1 | tail -2
+    ok "Envoy Gateway bundle applied"
+
+    kubectl create namespace metallb-system --dry-run=client -o yaml | kubectl apply -f - >/dev/null
+    kubectl apply --server-side --force-conflicts -f "$METALLB_BUNDLE" 2>&1 | tail -2
+    ok "MetalLB bundle applied"
+
+    if [[ "$OBSERVABILITY_ENABLED" == "true" ]]; then
+        install_observability_operator
+    fi
+
+    step "3/8 Wait for CRD registration"
+    # Wait until the API server can see the new CRDs
+    crds_ready=false
+    for i in 1 2 3 4 5 6 7 8 9 10; do
+        if kubectl get crd gateways.gateway.networking.k8s.io >/dev/null 2>&1 && \
+           kubectl get crd ipaddresspools.metallb.io >/dev/null 2>&1; then
+            ok "CRDs registered"
+            crds_ready=true
+            break
+        fi
+        sleep 3
+    done
+    [[ "$crds_ready" == "true" ]] || fail "Envoy Gateway/MetalLB CRDs did not register within 30s"
+
+    step "4/8 Wait for MetalLB webhook to be ready"
+    # The MetalLB IPAddressPool has a validating webhook. The webhook
+    # service must be up before the chart can create pool resources.
+    endpoints=""
+    for i in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20; do
+        # Webhook endpoints become non-empty when the controller pod is up
+        endpoints=$(kubectl get endpoints metallb-webhook-service -n metallb-system -o jsonpath='{.subsets[0].addresses[0].ip}' 2>/dev/null || echo "")
+        if [[ -n "$endpoints" ]]; then
+            ok "MetalLB webhook endpoint ready ($endpoints)"
+            break
+        fi
+        sleep 3
+    done
+    [[ -n "$endpoints" ]] || fail "MetalLB webhook did not become ready within 60s"
+
+    step "5/8 Helm install (release: $RELEASE_NAME, env: $ENV)"
+    # Helm's release namespace is created by --create-namespace. The chart
+    # deliberately owns neither namespace, so create the cross-namespace UI
+    # target before Helm submits its resources.
+    kubectl create namespace apollo-airlines-ui --dry-run=client -o yaml | kubectl apply -f - >/dev/null
+    HELM_CMD=(helm upgrade --install "$RELEASE_NAME" "$CHART_DIR"
+        --namespace apollo-airlines-apps
+        --create-namespace
+        --set image.tag="$TAG"
+        --set gateway.envoy.bundleInstall=false
+        --set metallb.bundleInstall=false
+        --set observability.enabled="$OBSERVABILITY_ENABLED"
+        --wait --wait-for-jobs --timeout 10m)
+
+    # Apply env-specific values file if present (values-dev.yaml,
+    # values-staging.yaml, values-prod.yaml). The env-specific file
+    # overrides values.yaml defaults; --set image.tag still wins for
+    # the tag, so CLI override beats the env file.
+    if [[ "$ENV" != "dev" ]] || [[ -f "$CHART_DIR/values-${ENV}.yaml" ]]; then
+        VALUES_FILE="$CHART_DIR/values-${ENV}.yaml"
+        if [[ -f "$VALUES_FILE" ]]; then
+            HELM_CMD+=(-f "$VALUES_FILE")
+            echo "  using values file: $VALUES_FILE"
+        fi
+    fi
+
+    "${HELM_CMD[@]}" 2>&1 | tail -20
+    ok "helm install complete"
+
+    step "6/8 Waiting for MetalLB controller pod"
+    metallb_ready=false
+    for i in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15; do
+        if kubectl get pods -n metallb-system -l component=controller --no-headers 2>/dev/null | grep -q "1/1"; then
+            ok "MetalLB controller ready"
+            metallb_ready=true
+            break
+        fi
+        sleep 5
+    done
+    [[ "$metallb_ready" == "true" ]] || fail "MetalLB controller did not become ready within 75s"
+
+    step "7/8 Waiting for Envoy Gateway"
+    # The Envoy data-plane pod has two containers in the bundled release.
+    # Check the Pod Ready condition instead of assuming a literal 1/1 count.
+    kubectl wait --for=condition=Ready pod \
+        -n envoy-gateway-system \
+        -l gateway.envoyproxy.io/owning-gateway-name=apollo-gateway \
+        --timeout=100s >/dev/null || fail "Envoy data-plane pod did not become ready within 100s"
+    ok "Envoy Gateway ready"
+
+    step "8/8 Waiting for StatefulSets (3 PG + 1 Redis)"
+    for sts in identity-db flight-db booking-db redis; do
+        kubectl rollout status -n apollo-airlines-apps "statefulset/$sts" --timeout=180s >/dev/null || \
+            fail "statefulset/$sts did not become ready"
+        ok "statefulset/$sts ready"
+    done
+
+    step "8b/8 Waiting for seed jobs"
+    for job in seed-identity-db seed-flight-db seed-booking-db; do
+        kubectl wait --for=condition=Complete -n apollo-airlines-apps "job/$job" --timeout=120s >/dev/null || \
+            fail "job/$job did not complete"
+        ok "job/$job Complete"
+    done
+
+    step "8c/8 Waiting for app Deployments (5 backends + frontend)"
+    for dep in identity flight booking search notification; do
+        kubectl rollout status -n apollo-airlines-apps "deployment/$dep" --timeout=180s >/dev/null || \
+            fail "deployment/$dep did not become ready"
+        ok "deployment/$dep ready"
+    done
+    kubectl rollout status -n apollo-airlines-ui deployment/frontend --timeout=180s >/dev/null || \
+        fail "deployment/frontend did not become ready"
+    ok "deployment/frontend ready"
+
+    wait_observability
+
+    step "8/8 Summary"
+    ok "Apollo Airlines installed via Helm"
+    echo "  Run 'bash scripts/verify.sh --mode helm' to run the verify suite"
+    echo "  Run 'bash scripts/teardown.sh --mode helm' to uninstall"
+
+elif [[ "$MODE" == "kustomize" ]]; then
+    # ---------------------------------------------------------------------
+    # Kustomize: plain manifest base + dev/staging/prod overlay
+    # ---------------------------------------------------------------------
+    OVERLAY_DIR="$STAGE_DIR/overlays/$ENV"
+    if [[ ! -d "$OVERLAY_DIR" ]]; then
+        fail "overlay dir not found: $OVERLAY_DIR (env: $ENV)"
+    fi
+
+    step "2/8 Installing Envoy Gateway + MetalLB controller bundles"
+    install_platform_bundles
+    if [[ "$OBSERVABILITY_ENABLED" == "true" ]]; then
+        install_observability_operator
+    fi
+
+    step "3/8 Ensuring workload namespaces exist"
+    kubectl apply -f - <<EOF
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: apollo-airlines-apps
+  labels:
+    app.kubernetes.io/part-of: apollo-airlines
+    app.kubernetes.io/component: apps
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: apollo-airlines-ui
+  labels:
+    app.kubernetes.io/part-of: apollo-airlines
+    app.kubernetes.io/component: ui
+EOF
+    ok "namespaces ready"
+
+    step "4/8 Kustomize build ($ENV overlay)"
+    echo "  Building kustomize overlay at $OVERLAY_DIR..."
+    rendered_manifest=$(mktemp)
+    render_errors=$(mktemp)
+    if ! kubectl kustomize "$OVERLAY_DIR" > "$rendered_manifest" 2>"$render_errors"; then
+        cat "$render_errors"
+        rm -f "$rendered_manifest" "$render_errors"
+        fail "kustomize build failed"
+    fi
+    rm -f "$render_errors"
+    ok "kustomize build OK ($(wc -l < "$rendered_manifest") lines)"
+
+    step "5/8 Applying complete plain-manifest overlay"
+    kubectl apply -f "$rendered_manifest"
+    rm -f "$rendered_manifest"
+    ok "kustomize overlay applied"
+
+    step "6/8 Waiting for StatefulSets + seed Jobs"
+    for sts in identity-db flight-db booking-db redis; do
+        kubectl rollout status -n apollo-airlines-apps "statefulset/$sts" --timeout=180s >/dev/null || fail "statefulset/$sts did not become ready"
+        ok "statefulset/$sts ready"
+    done
+    for job in seed-identity-db seed-flight-db seed-booking-db; do
+        kubectl wait --for=condition=Complete -n apollo-airlines-apps "job/$job" --timeout=120s >/dev/null || fail "job/$job did not complete"
+        ok "job/$job Complete"
+    done
+
+    step "7/8 Waiting for application Deployments"
+    for dep in identity flight booking search notification; do
+        kubectl rollout status -n apollo-airlines-apps "deployment/$dep" --timeout=180s >/dev/null || fail "deployment/$dep did not become ready"
+        ok "deployment/$dep ready"
+    done
+    kubectl rollout status -n apollo-airlines-ui deployment/frontend --timeout=180s >/dev/null || fail "deployment/frontend did not become ready"
+    ok "deployment/frontend ready"
+
+    step "8/8 Waiting for Envoy data-plane"
+    kubectl wait --for=condition=Ready pod -n envoy-gateway-system \
+        -l gateway.envoyproxy.io/owning-gateway-name=apollo-gateway \
+        --timeout=100s >/dev/null || fail "Envoy data-plane pod did not become ready"
+    ok "Envoy Gateway ready"
+
+    wait_observability
+
+    ok "Apollo Airlines Stage 6 installed via kustomize ($ENV)"
+    echo "  Run 'bash scripts/verify.sh --mode kustomize' to run the verify suite"
+    echo "  Run 'bash scripts/teardown.sh --mode kustomize' to remove"
+else
+    fail "unknown mode: $MODE (expected helm or kustomize)"
+fi

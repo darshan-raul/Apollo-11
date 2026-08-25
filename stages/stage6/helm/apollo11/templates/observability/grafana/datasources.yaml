@@ -1,8 +1,9 @@
+{{- if .Values.observability.enabled }}
 apiVersion: v1
 kind: ConfigMap
 metadata:
   name: grafana-datasources
-  namespace: apollo-observability
+  namespace: {{ .Values.observability.namespace }}
   labels:
     app.kubernetes.io/name: grafana
     app.kubernetes.io/part-of: apollo-airlines
@@ -91,3 +92,22 @@ data:
             enabled: true
           search:
             hide: false
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: grafana-dashboard-provider
+  namespace: {{ .Values.observability.namespace }}
+data:
+  dashboards.yaml: |
+    apiVersion: 1
+    providers:
+      - name: Apollo11
+        folder: Apollo11
+        type: file
+        disableDeletion: false
+        editable: true
+        options:
+          path: /var/lib/grafana/dashboards
+
+{{- end }}

@@ -1,5 +1,5 @@
 #!/bin/bash
-# Install ArgoCD v2.13.x into the cluster.
+# Install Argo CD v3.5.x into the cluster.
 #
 # Two install paths:
 #   1. Online (default): curl the official install.yaml from raw.githubusercontent.com
@@ -11,7 +11,7 @@
 #   ./install.sh                         # online install
 #   ./install.sh --offline               # use the vendored bundle
 #   ./install.sh --fetch-bundle          # download + vendor the bundle, don't install
-#   ./install.sh --version v2.13.2       # pin a specific ArgoCD version
+#   ./install.sh --version v3.5.1        # pin a specific Argo CD version
 #
 # After install:
 #   - ArgoCD lives in the `argocd` namespace
@@ -27,7 +27,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 STAGE_DIR="$(dirname "$SCRIPT_DIR")"
 BUNDLE_DIR="$SCRIPT_DIR/bundles"
 BUNDLE_FILE="$BUNDLE_DIR/argocd-install.yaml"
-ARGO_VERSION="v2.13.2"
+ARGO_VERSION="v3.5.1"
 INSTALL_URL="https://raw.githubusercontent.com/argoproj/argo-cd/${ARGO_VERSION}/manifests/install.yaml"
 ARGOCD_NS="argocd"
 
@@ -115,11 +115,11 @@ step "3/6 Applying ArgoCD manifests"
 # install.yaml is ~5MB and exceeds the 256KB last-applied-config limit
 # when applied normally. Use --server-side so the API server doesn't try
 # to track it as a single object.
-kubectl apply --server-side -f "$MANIFEST" 2>&1 | tail -3
+kubectl apply -n "$ARGOCD_NS" --server-side --force-conflicts -f "$MANIFEST" 2>&1 | tail -3
 ok "manifests applied"
 
 # Clean up temp manifest if we downloaded
-if [[ "$MANIFEST" == "$(mktemp -u)"* ]] || [[ -n "${TMP_MANIFEST:-}" && "$MANIFEST" == "$TMP_MANIFEST" ]]; then
+if [[ -n "${TMP_MANIFEST:-}" && "$MANIFEST" == "$TMP_MANIFEST" ]]; then
     rm -f "$TMP_MANIFEST" 2>/dev/null || true
 fi
 
@@ -135,9 +135,7 @@ for i in $(seq 1 30); do
     fi
     sleep 4
 done
-if [[ "$ready" != "True" ]]; then
-    echo "  (warn) argocd-server not Ready after 120s — check 'kubectl get pods -n $ARGOCD_NS'"
-fi
+[[ "$ready" == "True" ]] || fail "argocd-server not Ready after 120s"
 
 step "5/6 Waiting for argocd-application-controller"
 for i in $(seq 1 30); do
@@ -148,38 +146,31 @@ for i in $(seq 1 30); do
     fi
     sleep 4
 done
-if [[ "$ready" != "True" ]]; then
-    echo "  (warn) argocd-application-controller not Ready after 120s"
-fi
+[[ "$ready" == "True" ]] || fail "argocd-application-controller not Ready after 120s"
 
-step "6/6 Fetching initial admin password"
-# The password is stored in plaintext in a secret named 'argocd-initial-admin-secret'
-# This secret is auto-deleted on first password change.
-PASSWORD=""
+step "6/6 Checking initial admin credential Secret"
+# Do not print credentials into terminal/session logs. The learner can retrieve
+# the password explicitly when they are ready to log in.
+PASSWORD_READY=false
 for i in $(seq 1 10); do
     if kubectl get secret argocd-initial-admin-secret -n "$ARGOCD_NS" >/dev/null 2>&1; then
-        PASSWORD=$(kubectl get secret argocd-initial-admin-secret -n "$ARGOCD_NS" -o jsonpath='{.data.password}' 2>/dev/null | base64 -d || echo "")
+        PASSWORD_READY=true
         break
     fi
     sleep 2
 done
-if [[ -n "$PASSWORD" ]]; then
-    ok "initial admin password: $PASSWORD"
+if [[ "$PASSWORD_READY" == "true" ]]; then
+    ok "initial admin credential Secret is ready"
     echo ""
-    echo "  ┌────────────────────────────────────────────────────────────┐"
-    echo "  │  SAVE THIS — it won't be shown again.                       │"
-    echo "  │  Username: admin                                           │"
-    echo "  │  Password: $PASSWORD  │"
-    echo "  └────────────────────────────────────────────────────────────┘"
-    echo ""
-    echo "  To log in via CLI:"
-    echo "    argocd login localhost:8080 --username admin --password \"\$PASSWORD\" --insecure"
+    echo "  Retrieve it explicitly:"
+    echo "    kubectl -n $ARGOCD_NS get secret argocd-initial-admin-secret \\"
+    echo "      -o jsonpath='{.data.password}' | base64 -d; echo"
     echo ""
     echo "  To open the UI:"
     echo "    kubectl port-forward svc/argocd-server -n $ARGOCD_NS 8080:443 &"
     echo "    open http://localhost:8080"
 else
-    echo "  (warn) could not retrieve initial admin password — may have been deleted on prior install"
+    echo "  (info) initial credential Secret is absent; it may have been consumed on an earlier install"
 fi
 
 ok "ArgoCD install complete"

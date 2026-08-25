@@ -57,14 +57,14 @@ func initRedis() {
 	opt, err := redis.ParseURL(redisURL)
 	if err != nil {
 		logJSON("ERROR", "notification-service", fmt.Sprintf("Redis URL parse failed: %v", err), "", "", nil)
+		opt = &redis.Options{Addr: "redis:6379"}
 	}
 	redisClient = redis.NewClient(opt)
-	for {
-		_, err := redisClient.Ping(ctx).Result()
-		if err == nil {
-			break
-		}
-		time.Sleep(1 * time.Second)
+	pingCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	if _, err := redisClient.Ping(pingCtx).Result(); err != nil {
+		logJSON("WARN", "notification-service", fmt.Sprintf("Redis unavailable at startup; continuing in degraded mode: %v", err), "", "", nil)
+		return
 	}
 	logJSON("INFO", "notification-service", "Connected to Redis", "", "", nil)
 }
@@ -135,9 +135,9 @@ func main() {
 	r.GET("/metrics", func(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{
 			"service":                  "notification",
-			"http_requests_total":       0,
+			"http_requests_total":      0,
 			"http_request_duration_ms": 0,
-			"db_connections_active":     0,
+			"db_connections_active":    0,
 		})
 	})
 
@@ -154,10 +154,10 @@ func main() {
 		eventJSON, _ := json.Marshal(map[string]interface{}{
 			"id":         uuid.New().String(),
 			"type":       req.Type,
-			"recipient":   req.Recipient,
-			"payload":     req.Payload,
+			"recipient":  req.Recipient,
+			"payload":    req.Payload,
 			"trace_id":   traceID,
-			"created_at":  time.Now().UTC().Format(time.RFC3339),
+			"created_at": time.Now().UTC().Format(time.RFC3339),
 		})
 
 		err := redisClient.LPush(ctx, "notifications:queue", string(eventJSON)).Err()

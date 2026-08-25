@@ -3,7 +3,8 @@
 # Use as: helm upgrade --install apollo11 helm/apollo11 -f values-dev.yaml
 
 image:
-  tag: dev
+  # CI publishes :latest on main and immutable :sha-* tags.
+  tag: latest
 
 apps:
   identity:

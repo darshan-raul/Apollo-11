@@ -3,7 +3,7 @@ title: "Apollo11 — Handoff Notes"
 description: "Canonical rolling handoff for the evidence-driven completion of Apollo11 stages after Stage 4."
 ---
 
-# Active completion program (2026-08-22)
+# Active completion program (updated 2026-08-25)
 
 This is the canonical rolling handoff for completing every stage after Stage 4.
 The older sections below are retained as historical context; their completion
@@ -12,20 +12,27 @@ program.
 
 ## Current position
 
-- **Active checkpoint:** Stage 6 increment 1 — rebase the workload/package
-  baseline on trusted Stage 5 while preserving only reviewed telemetry deltas.
-- **Last trusted implementation boundary:** Stage 5, locally verified across
-  Helm, Kustomize, and Argo CD. Hosted GitHub Actions and GHCR publication
-  remain external evidence for the next push/tag.
+- **Active checkpoint:** Stage 6 is complete; Stage 7 is the next untrusted
+  implementation boundary.
+- **Last trusted implementation boundary:** Stage 6, locally verified through
+  clean Helm and Kustomize lifecycles. Hosted CI/image publication and live
+  Stage 6 Argo CD reconciliation remain external checks requiring a Git
+  revision containing the work.
 - **Stage 5 Helm evidence:** ✅ trusted. Clean build/install, **153 passed,
   0 failed**, clean uninstall/purge, and zero namespace/PVC/related-CRD
   residue.
 - **Stage 5 Kustomize evidence:** ✅ trusted for dev. Helm-free clean install,
   **142 passed, 0 failed**, clean purge, and zero residue.
-- **Next checkpoint:** make Stage 6 with observability disabled reproduce the
-  Stage 5 Helm/Kustomize lifecycle, then enable metrics as the first isolated
-  observability slice.
-- **Worktree at start:** clean.
+- **Stage 6 Helm evidence:** ✅ **190 passed, 0 failed**, including healthy
+  Prometheus targets, Grafana through Envoy, Tempo trace propagation, Alloy to
+  Loki log delivery, and a clean full purge.
+- **Stage 6 Kustomize evidence:** ✅ **180 passed, 0 failed**, with the same
+  behavior and a clean full purge.
+- **Stage 6 Argo CD evidence:** static validation passed for dev (58), staging
+  (58), prod (60), and shared observability (34) resources. Live reconciliation
+  was not fabricated from an uncommitted fixture.
+- **Next checkpoint:** begin Stage 7 only when requested.
+- **Worktree:** Stage 6 completion is intentionally uncommitted.
 - **Local platform:** Docker 29.5.1, 6 CPUs, ~15.4 GiB memory; no kind clusters
   existed at the start. The stale kubectl context was `kind-strata-dev`.
 
@@ -54,6 +61,41 @@ teardown/cleanup -> record exact evidence -> only then update README/AGENTS
 status and copy the snapshot forward.
 
 ## Session log
+
+### 2026-08-25 — Stage 6 completion
+
+- Rebased Stage 6 on the trusted Stage 5 packaging and completed the metrics,
+  traces, logs, dashboards, operator lifecycle, Helm, Kustomize, and Argo CD
+  ownership work.
+- Helm/dev passed **190/190** on a clean deployment. Kustomize/dev passed
+  **180/180**, including the external Grafana route that an earlier variable
+  ordering bug had skipped.
+- The trace test proved one booking request reached booking, identity, flight,
+  and notification in Tempo. Prometheus scraped all five backends and Alloy
+  delivered Kubernetes logs to Loki.
+- Both delivery modes completed full purges. The final residue audit found only
+  system namespaces, no PVCs, and no related CRDs.
+- Argo CD static validation passed for three isolated tenant Applications and
+  one shared observability Application. A live Git reconciliation was not run
+  because the completed work remains intentionally uncommitted.
+
+### 2026-08-25 — Stage 2–6 booking-contract correction
+
+- Backported caller-token forwarding for Booking → Identity and bounded
+  Notification Redis startup through the Stage 2–5 snapshots.
+- Added short-lived `role=SERVICE` JWTs for Booking → Flight seat mutations in
+  Stages 2–6. Flight permits that service role or an administrator and pins JWT
+  verification to HS256.
+- Corrected the Stage 5/6 chart schemas instead of carrying forward code
+  workarounds: booking references are `VARCHAR(20)` with no mandatory
+  `total_price`, and Flight retains `updated_at`. Regenerated both committed
+  Kustomize bases.
+- All 15 modified Go service snapshots compile. Helm lint and dev/staging/prod
+  Kustomize renders pass for Stages 5 and 6.
+- A fresh Stage 6 Kustomize deployment passed **180/180**. A focused passenger
+  flow then created and cancelled a booking, restored the seat through service
+  authentication, and produced a Tempo trace spanning booking, identity,
+  flight, and notification.
 
 ### 2026-08-22 — kickoff
 

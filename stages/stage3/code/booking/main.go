@@ -15,8 +15,8 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/golang-jwt/jwt/v5"
-	_ "github.com/lib/pq"
 	"github.com/google/uuid"
+	_ "github.com/lib/pq"
 )
 
 var (
@@ -110,10 +110,28 @@ func generateRequestID() string {
 	return uuid.New().String()
 }
 
-func callService(url, method, body, traceID string) (int, []byte) {
+func serviceAuthorization() string {
+	token := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{
+		"sub":  "booking-service",
+		"role": "SERVICE",
+		"iat":  time.Now().Unix(),
+		"exp":  time.Now().Add(5 * time.Minute).Unix(),
+	})
+	signed, err := token.SignedString([]byte(jwtSecret))
+	if err != nil {
+		logJSON("ERROR", "booking-service", fmt.Sprintf("Service token signing failed: %v", err), "", "", nil)
+		return ""
+	}
+	return "Bearer " + signed
+}
+
+func callService(url, method, body, traceID string, authorization ...string) (int, []byte) {
 	req, _ := http.NewRequest(method, url, bytes.NewBuffer([]byte(body)))
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("X-Request-ID", traceID)
+	if len(authorization) > 0 && authorization[0] != "" {
+		req.Header.Set("Authorization", authorization[0])
+	}
 	client := &http.Client{Timeout: 10 * time.Second}
 	resp, err := client.Do(req)
 	if err != nil {
@@ -175,7 +193,7 @@ func main() {
 		})
 	})
 
-r.POST("/api/bookings", authRequired(), func(c *gin.Context) {
+	r.POST("/api/bookings", authRequired(), func(c *gin.Context) {
 		requestID, _ := c.Get("request_id")
 		traceID := requestID.(string)
 		claimsVal, _ := c.Get("claims")
@@ -190,7 +208,7 @@ r.POST("/api/bookings", authRequired(), func(c *gin.Context) {
 
 		statusCode, body := callService(
 			fmt.Sprintf("%s/api/users/%s", identityServiceURL, userID),
-			"GET", "", traceID,
+			"GET", "", traceID, c.GetHeader("Authorization"),
 		)
 		if statusCode != 200 {
 			logJSON("WARN", "booking-service", "User check failed", traceID, "", nil)
@@ -223,7 +241,7 @@ r.POST("/api/bookings", authRequired(), func(c *gin.Context) {
 
 		statusCode, body = callService(
 			fmt.Sprintf("%s/api/flights/%s/seats", flightServiceURL, req.FlightID),
-			"PATCH", `{"delta": -1}`, traceID,
+			"PATCH", `{"delta": -1}`, traceID, serviceAuthorization(),
 		)
 		if statusCode != 200 {
 			c.JSON(http.StatusConflict, gin.H{"error": "No seats available"})
@@ -359,7 +377,7 @@ r.POST("/api/bookings", authRequired(), func(c *gin.Context) {
 		}
 
 		userMap := map[string]string{}
-		statusCode, body := callService(fmt.Sprintf("%s/api/admin/users", identityServiceURL), "GET", "", traceID)
+		statusCode, body := callService(fmt.Sprintf("%s/api/admin/users", identityServiceURL), "GET", "", traceID, c.GetHeader("Authorization"))
 		if statusCode == 200 {
 			var result struct {
 				Users []struct {
@@ -441,7 +459,7 @@ r.POST("/api/bookings", authRequired(), func(c *gin.Context) {
 
 		go callService(
 			fmt.Sprintf("%s/api/flights/%s/seats", flightServiceURL, bk.FlightID),
-			"PATCH", `{"delta": 1}`, traceID,
+			"PATCH", `{"delta": 1}`, traceID, serviceAuthorization(),
 		)
 
 		email, _ := claims["email"].(string)

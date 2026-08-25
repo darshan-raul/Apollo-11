@@ -1,8 +1,9 @@
+{{- if .Values.observability.enabled }}
 apiVersion: monitoring.coreos.com/v1
 kind: ServiceMonitor
 metadata:
   name: search
-  namespace: apollo-observability
+  namespace: {{ .Values.observability.namespace }}
   labels:
     app.kubernetes.io/name: search
     app.kubernetes.io/part-of: apollo-airlines
@@ -12,13 +13,14 @@ spec:
     matchLabels:
       app: search
   namespaceSelector:
-    matchNames:
-      - apollo-airlines-apps
+    any: true
   endpoints:
-    - port: 8083
+    - port: http
       path: /metrics
       scheme: http
       interval: 30s
       scrapeTimeout: 10s
       honorLabels: true
   jobLabel: app
+
+{{- end }}

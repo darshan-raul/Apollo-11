@@ -1,8 +1,9 @@
+{{- if .Values.observability.enabled }}
 apiVersion: v1
 kind: ConfigMap
 metadata:
   name: loki-config
-  namespace: apollo-observability
+  namespace: {{ .Values.observability.namespace }}
   labels:
     app.kubernetes.io/name: loki
     app.kubernetes.io/part-of: apollo-airlines
@@ -38,7 +39,7 @@ data:
             period: 24h
 
     limits_config:
-      retention_period: 168h   # 7 days
+      retention_period: {{ .Values.observability.loki.retention }}
       ingestion_rate_mb: 16
       ingestion_burst_size_mb: 24
       reject_old_samples: true
@@ -55,3 +56,5 @@ data:
 
     analytics:
       reporting_enabled: false
+
+{{- end }}

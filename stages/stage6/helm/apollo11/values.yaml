@@ -118,21 +118,21 @@ postgres:
           available_seats   INTEGER     NOT NULL,
           status            VARCHAR(20) DEFAULT 'SCHEDULED',
           created_at        TIMESTAMP   DEFAULT NOW(),
+          updated_at        TIMESTAMP   DEFAULT NOW(),
           UNIQUE (flight_number, departure_time)
       );
     booking: |
       CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 
       CREATE TABLE IF NOT EXISTS bookings (
-          id                 UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-          user_id            UUID         NOT NULL,
-          flight_id          UUID         NOT NULL,
-          passengers         INTEGER      NOT NULL DEFAULT 1,
-          status             VARCHAR(20)  NOT NULL DEFAULT 'CONFIRMED',
-          total_price        DECIMAL(10,2) NOT NULL,
-          booking_reference  VARCHAR(10)  UNIQUE NOT NULL,
-          created_at         TIMESTAMP    DEFAULT NOW(),
-          updated_at         TIMESTAMP    DEFAULT NOW()
+          id                UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+          booking_reference VARCHAR(20) UNIQUE NOT NULL,
+          user_id           UUID NOT NULL,
+          flight_id         UUID NOT NULL,
+          seat_number       VARCHAR(10),
+          status            VARCHAR(20) DEFAULT 'CONFIRMED',
+          created_at        TIMESTAMP DEFAULT NOW(),
+          updated_at        TIMESTAMP DEFAULT NOW()
       );
   seedSql:
     identity: |
@@ -297,6 +297,8 @@ pdb:
 # pointing at a real LoadBalancer IP.
 gateway:
   enabled: true
+  # GitOps environments share one platform-owned GatewayClass.
+  createClass: true
   controllerName: gateway.envoyproxy.io/gatewayclass-controller
   className: eg
   gatewayName: apollo-gateway
@@ -330,91 +332,20 @@ priorityClassName: ""
 # ----------------------------------------------------------------------------
 # Observability (Stage 6)
 # ----------------------------------------------------------------------------
-# The Mission Ops stack. Single namespace `apollo-observability` with:
-#   - Prometheus + Alertmanager-ready rules (16 alerts)
-#   - Grafana with 5 dashboards + 3 datasources (Prometheus, Loki, Tempo)
-#   - OpenTelemetry Collector (DaemonSet) — receives traces from app SDKs
-#   - Tempo (single pod) — distributed tracing backend
-#   - Loki + Promtail (DaemonSet) — log aggregation
 observability:
   enabled: true
   namespace: apollo-observability
-
+  operator:
+    enabled: true
+    version: v0.93.0
   prometheus:
     enabled: true
-    image: prom/prometheus:v2.51.2
+    image: quay.io/prometheus/prometheus:v3.13.1
     retention: 7d
-    storage: 5Gi
-    resources:
-      requests: { cpu: 500m, memory: 1Gi }
-      limits:   { cpu: 1,    memory: 2Gi }
-
-  grafana:
-    enabled: true
-    image: grafana/grafana:10.4.2
-    adminUser: admin
-    # In prod this would come from a Secret. For dev, plaintext.
-    adminPassword: apollo-admin
     storage: 1Gi
-    anonymousAccess: true
     resources:
-      requests: { cpu: 100m, memory: 256Mi }
-      limits:   { cpu: 500m, memory: 512Mi }
-
-  otelCollector:
-    enabled: true
-    image: otel/opentelemetry-collector-contrib:0.99.0
-    resources:
-      requests: { cpu: 100m, memory: 256Mi }
-      limits:   { cpu: 500m, memory: 512Mi }
-
-  tempo:
-    enabled: true
-    image: grafana/tempo:2.3.1
-    storage: 5Gi
-    retention: 48h
-    resources:
-      requests: { cpu: 100m, memory: 256Mi }
-      limits:   { cpu: 500m, memory: 512Mi }
-
-  loki:
-    enabled: true
-    image: grafana/loki:2.9.8
-    storage: 5Gi
-    retention: 168h   # 7 days
-    resources:
-      requests: { cpu: 200m, memory: 512Mi }
-      limits:   { cpu: 1,    memory: 1Gi }
-
-  promtail:
-    enabled: true
-    image: grafana/promtail:2.9.8
-    resources:
-      requests: { cpu: 50m, memory: 64Mi }
-      limits:   { cpu: 200m, memory: 256Mi }
-
-# ----------------------------------------------------------------------------
-# Observability (Stage 6)
-# ----------------------------------------------------------------------------
-# The Mission Ops stack. Single namespace `apollo-observability` with:
-#   - Prometheus + Alertmanager-ready rules (16 alerts)
-#   - Grafana with 5 dashboards + 3 datasources (Prometheus, Loki, Tempo)
-#   - OpenTelemetry Collector (DaemonSet) — receives traces from app SDKs
-#   - Tempo (single pod) — distributed tracing backend
-#   - Loki + Promtail (DaemonSet) — log aggregation
-observability:
-  enabled: true
-  namespace: apollo-observability
-
-  prometheus:
-    enabled: true
-    image: prom/prometheus:v2.51.2
-    retention: 7d
-    storage: 5Gi
-    resources:
-      requests: { cpu: 500m, memory: 1Gi }
-      limits:   { cpu: 1,    memory: 2Gi }
-
+      requests: { cpu: 200m, memory: 256Mi }
+      limits: { cpu: 500m, memory: 512Mi }
   grafana:
     enabled: true
     image: grafana/grafana:10.4.2
@@ -423,37 +354,33 @@ observability:
     storage: 1Gi
     anonymousAccess: true
     resources:
-      requests: { cpu: 100m, memory: 256Mi }
-      limits:   { cpu: 500m, memory: 512Mi }
-
+      requests: { cpu: 100m, memory: 128Mi }
+      limits: { cpu: 300m, memory: 256Mi }
   otelCollector:
     enabled: true
     image: otel/opentelemetry-collector-contrib:0.99.0
     resources:
-      requests: { cpu: 100m, memory: 256Mi }
-      limits:   { cpu: 500m, memory: 512Mi }
-
+      requests: { cpu: 100m, memory: 128Mi }
+      limits: { cpu: 300m, memory: 256Mi }
   tempo:
     enabled: true
     image: grafana/tempo:2.3.1
-    storage: 5Gi
+    storage: 1Gi
     retention: 48h
     resources:
-      requests: { cpu: 100m, memory: 256Mi }
-      limits:   { cpu: 500m, memory: 512Mi }
-
+      requests: { cpu: 100m, memory: 128Mi }
+      limits: { cpu: 300m, memory: 256Mi }
   loki:
     enabled: true
     image: grafana/loki:2.9.8
-    storage: 5Gi
+    storage: 1Gi
     retention: 168h
     resources:
-      requests: { cpu: 200m, memory: 512Mi }
-      limits:   { cpu: 1,    memory: 1Gi }
-
-  promtail:
+      requests: { cpu: 100m, memory: 256Mi }
+      limits: { cpu: 500m, memory: 512Mi }
+  alloy:
     enabled: true
-    image: grafana/promtail:2.9.8
+    image: grafana/alloy:v1.18.0
     resources:
       requests: { cpu: 50m, memory: 64Mi }
-      limits:   { cpu: 200m, memory: 256Mi }
+      limits: { cpu: 200m, memory: 256Mi }

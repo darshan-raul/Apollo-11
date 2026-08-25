@@ -26,7 +26,7 @@ from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import OTLPSpanExport
 from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
 from opentelemetry.instrumentation.psycopg2 import Psycopg2Instrumentor
 from opentelemetry.instrumentation.requests import RequestsInstrumentor
-from prometheus_client import generate_latest, CONTENT_TYPE_LATEST, REGISTRY
+from prometheus_client import generate_latest, CONTENT_TYPE_LATEST, REGISTRY, Counter, Histogram
 
 JWT_SECRET = os.getenv("JWT_SECRET", "apollo-airlines-dev-secret")
 JWT_ALGORITHM = "HS256"
@@ -36,6 +36,18 @@ pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
 DB_URL = os.getenv("DATABASE_URL", "postgresql://postgres:postgres@identity-db:5432/identity")
 OTEL_ENDPOINT = os.getenv("OTEL_EXPORTER_OTLP_ENDPOINT", "otel-collector:4317")
+
+HTTP_REQUESTS_TOTAL = Counter(
+    "http_requests_total",
+    "Total HTTP requests by service, method, path, status.",
+    ["service", "method", "path", "status"],
+)
+HTTP_REQUEST_DURATION_MS = Histogram(
+    "http_request_duration_ms",
+    "HTTP request latency in milliseconds.",
+    ["service", "method", "path"],
+    buckets=(1, 5, 10, 25, 50, 100, 250, 500, 1000, 2500, 5000),
+)
 
 
 def get_db():
@@ -82,6 +94,8 @@ async def lifespan(app: FastAPI):
             provider.force_flush(timeout_millis=2000)
         except Exception:
             pass
+    if hasattr(provider, "shutdown"):
+        provider.shutdown()
     log_json("INFO", "identity-service", "Lifespan shutdown complete", trace_id="")
 
 
@@ -128,10 +142,17 @@ class UpdateProfileRequest(BaseModel):
 
 @app.middleware("http")
 async def add_request_id(request: Request, call_next):
+    started = datetime.datetime.now(datetime.timezone.utc)
     request_id = request.headers.get("X-Request-ID", generate_request_id())
     request.state.request_id = request_id
     response = await call_next(request)
     response.headers["X-Request-ID"] = request_id
+    if request.url.path != "/metrics":
+        route = request.scope.get("route")
+        path = getattr(route, "path", request.url.path)
+        elapsed_ms = (datetime.datetime.now(datetime.timezone.utc) - started).total_seconds() * 1000
+        HTTP_REQUESTS_TOTAL.labels("identity", request.method, path, str(response.status_code)).inc()
+        HTTP_REQUEST_DURATION_MS.labels("identity", request.method, path).observe(elapsed_ms)
     return response
 
 

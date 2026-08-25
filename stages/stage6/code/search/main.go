@@ -38,7 +38,7 @@ var (
 		[]string{"service", "method", "path", "status"},
 	)
 	httpRequestDurationMs = prometheus.NewHistogramVec(
-		prometheus.HistogramOpts{Name: "http_request_duration_ms", Help: "HTTP request latency (ms).", Buckets: prometheus.DefBuckets},
+		prometheus.HistogramOpts{Name: "http_request_duration_ms", Help: "HTTP request latency (ms).", Buckets: []float64{1, 5, 10, 25, 50, 100, 250, 500, 1000, 2500, 5000}},
 		[]string{"service", "method", "path"},
 	)
 )
@@ -95,6 +95,14 @@ func getEnv(key, fallback string) string {
 
 func generateRequestID() string {
 	return uuid.New().String()
+}
+
+func traceIDFromContext(ctx context.Context) string {
+	spanContext := trace.SpanFromContext(ctx).SpanContext()
+	if !spanContext.IsValid() {
+		return ""
+	}
+	return spanContext.TraceID().String()
 }
 
 func initOTEL(ctx context.Context, serviceName string) (func(context.Context) error, error) {
@@ -159,6 +167,9 @@ func metricsMiddleware(service string) gin.HandlerFunc {
 		start := time.Now()
 		c.Next()
 		path := c.FullPath()
+		if path == "/metrics" {
+			return
+		}
 		if path == "" {
 			path = "unknown"
 		}
@@ -218,7 +229,8 @@ func main() {
 	r.GET("/metrics", gin.WrapH(prometheusHandler()))
 
 	r.GET("/api/search", func(c *gin.Context) {
-		traceID, _ := c.Get("request_id")
+		requestID, _ := c.Get("request_id")
+		traceID := traceIDFromContext(c.Request.Context())
 		ctx := c.Request.Context()
 		origin := c.Query("origin")
 		destination := c.Query("destination")
@@ -228,14 +240,14 @@ func main() {
 			flightServiceURL, origin, destination, date)
 
 		req, _ := http.NewRequestWithContext(ctx, "GET", searchURL, nil)
-		req.Header.Set("X-Request-ID", traceID.(string))
+		req.Header.Set("X-Request-ID", requestID.(string))
 		// Inject W3C traceparent so the flight service span becomes a child
 		otel.GetTextMapPropagator().Inject(ctx, propagation.HeaderCarrier(req.Header))
 
 		client := &http.Client{Timeout: 10 * time.Second}
 		resp, err := client.Do(req)
 		if err != nil {
-			logJSON("ERROR", "search-service", fmt.Sprintf("Flight service call failed: %v", err), traceID.(string), "", nil)
+			logJSON("ERROR", "search-service", fmt.Sprintf("Flight service call failed: %v", err), traceID, "", nil)
 			c.JSON(http.StatusBadGateway, gin.H{"error": "Flight service unavailable"})
 			return
 		}
@@ -272,7 +284,7 @@ func main() {
 				Status:         fm["status"].(string),
 			})
 		}
-		logJSON("INFO", "search-service", "Search completed", traceID.(string), "", map[string]interface{}{"count": len(results)})
+		logJSON("INFO", "search-service", "Search completed", traceID, "", map[string]interface{}{"count": len(results)})
 		c.JSON(http.StatusOK, gin.H{"results": results, "total": len(results), "page": 1, "limit": 20})
 	})
 

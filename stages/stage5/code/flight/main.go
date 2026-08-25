@@ -16,8 +16,8 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/golang-jwt/jwt/v5"
-	_ "github.com/lib/pq"
 	"github.com/google/uuid"
+	_ "github.com/lib/pq"
 )
 
 var (
@@ -343,7 +343,7 @@ func main() {
 		c.JSON(http.StatusOK, f)
 	})
 
-	r.PATCH("/api/flights/:id/seats", authRequired("ADMIN"), func(c *gin.Context) {
+	r.PATCH("/api/flights/:id/seats", authRequired("SERVICE"), func(c *gin.Context) {
 		requestID, _ := c.Get("request_id")
 		traceID := requestID.(string)
 		id := c.Param("id")
@@ -435,7 +435,7 @@ func authRequired(requiredRole string) gin.HandlerFunc {
 		tokenString := parts[1]
 		token, err := jwt.Parse(tokenString, func(token *jwt.Token) (interface{}, error) {
 			return []byte(jwtSecret), nil
-		})
+		}, jwt.WithValidMethods([]string{"HS256"}))
 		if err != nil || !token.Valid {
 			c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid or expired token"})
 			c.Abort()
@@ -448,7 +448,8 @@ func authRequired(requiredRole string) gin.HandlerFunc {
 			return
 		}
 		role, _ := claims["role"].(string)
-		if requiredRole != "" && role != requiredRole {
+		roleAllowed := requiredRole == "" || role == requiredRole || (requiredRole == "SERVICE" && role == "ADMIN")
+		if !roleAllowed {
 			c.JSON(http.StatusForbidden, gin.H{"error": "Insufficient permissions"})
 			c.Abort()
 			return

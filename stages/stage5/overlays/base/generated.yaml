@@ -183,6 +183,7 @@ metadata:
     app.kubernetes.io/managed-by: Helm
     app.kubernetes.io/part-of: apollo-airlines
     hermes: managed
+
 ---
 # Source: apollo11/templates/config/secrets.yaml
 apiVersion: v1
@@ -220,6 +221,7 @@ metadata:
 type: Opaque
 stringData:
   JWT_SECRET: "apollo-airlines-dev-secret-change-in-production"
+
 ---
 # Source: apollo11/templates/config/configmap.yaml
 apiVersion: v1
@@ -259,6 +261,7 @@ data:
   VITE_FLIGHT_URL:   "http://flight.apollo.local"
   VITE_BOOKING_URL:  "http://booking.apollo.local"
   VITE_SEARCH_URL:   "http://search.apollo.local"
+
 ---
 # Source: apollo11/templates/infra/postgres.yaml
 apiVersion: v1
@@ -350,6 +353,7 @@ data:
         available_seats   INTEGER     NOT NULL,
         status            VARCHAR(20) DEFAULT 'SCHEDULED',
         created_at        TIMESTAMP   DEFAULT NOW(),
+        updated_at        TIMESTAMP   DEFAULT NOW(),
         UNIQUE (flight_number, departure_time)
     );
 ---
@@ -411,15 +415,14 @@ data:
     CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
     
     CREATE TABLE IF NOT EXISTS bookings (
-        id                 UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-        user_id            UUID         NOT NULL,
-        flight_id          UUID         NOT NULL,
-        passengers         INTEGER      NOT NULL DEFAULT 1,
-        status             VARCHAR(20)  NOT NULL DEFAULT 'CONFIRMED',
-        total_price        DECIMAL(10,2) NOT NULL,
-        booking_reference  VARCHAR(10)  UNIQUE NOT NULL,
-        created_at         TIMESTAMP    DEFAULT NOW(),
-        updated_at         TIMESTAMP    DEFAULT NOW()
+        id                UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        booking_reference VARCHAR(20) UNIQUE NOT NULL,
+        user_id           UUID NOT NULL,
+        flight_id         UUID NOT NULL,
+        seat_number       VARCHAR(10),
+        status            VARCHAR(20) DEFAULT 'CONFIRMED',
+        created_at        TIMESTAMP DEFAULT NOW(),
+        updated_at        TIMESTAMP DEFAULT NOW()
     );
 ---
 # Source: apollo11/templates/infra/postgres.yaml
@@ -850,6 +853,7 @@ spec:
             limits:
               cpu: 200m
               memory: 256Mi
+
 ---
 # Source: apollo11/templates/apps/flight.yaml
 apiVersion: apps/v1
@@ -934,6 +938,7 @@ spec:
             limits:
               cpu: 100m
               memory: 128Mi
+
 ---
 # Source: apollo11/templates/apps/identity.yaml
 apiVersion: apps/v1
@@ -1018,6 +1023,7 @@ spec:
             limits:
               cpu: 100m
               memory: 128Mi
+
 ---
 # Source: apollo11/templates/apps/notification.yaml
 apiVersion: apps/v1
@@ -1094,6 +1100,7 @@ spec:
             limits:
               cpu: 50m
               memory: 64Mi
+
 ---
 # Source: apollo11/templates/apps/search.yaml
 apiVersion: apps/v1
@@ -1170,6 +1177,7 @@ spec:
             limits:
               cpu: 100m
               memory: 128Mi
+
 ---
 # Source: apollo11/templates/ui/frontend.yaml
 apiVersion: apps/v1
@@ -1245,6 +1253,7 @@ spec:
             limits:
               cpu: 50m
               memory: 64Mi
+
 ---
 # Source: apollo11/templates/infra/postgres.yaml
 apiVersion: apps/v1
@@ -1533,6 +1542,7 @@ spec:
         resources:
           requests:
             storage: 1Gi
+
 ---
 # Source: apollo11/templates/infra/redis.yaml
 apiVersion: apps/v1
@@ -1614,6 +1624,7 @@ spec:
         resources:
           requests:
             storage: 1Gi
+
 ---
 # Source: apollo11/templates/jobs/seed.yaml
 apiVersion: batch/v1
@@ -1758,6 +1769,7 @@ spec:
         - name: seed-script
           configMap:
             name: booking-db-seed
+
 ---
 # Source: apollo11/templates/gateway/gateway.yaml
 # The Gateway itself. Listens on port 80 (HTTP). allowedRoutes.namespaces
@@ -1785,6 +1797,7 @@ spec:
       allowedRoutes:
         namespaces:
           from: All
+
 ---
 # Source: apollo11/templates/gateway/gateway.yaml
 # GatewayClass — referenced by every Gateway. The controller name must
@@ -1983,6 +1996,7 @@ metadata:
 spec:
   ipAddressPools:
     - apollo-pool
+
 ---
 # Source: apollo11/templates/gateway/httproutes.yaml
 # Cross-namespace ReferenceGrant — required because HTTPRoutes in

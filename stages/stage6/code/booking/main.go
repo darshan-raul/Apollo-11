@@ -19,8 +19,8 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/golang-jwt/jwt/v5"
-	_ "github.com/lib/pq"
 	"github.com/google/uuid"
+	_ "github.com/lib/pq"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"go.opentelemetry.io/contrib/instrumentation/github.com/gin-gonic/gin/otelgin"
@@ -57,7 +57,7 @@ var (
 		prometheus.HistogramOpts{
 			Name:    "http_request_duration_ms",
 			Help:    "HTTP request latency in milliseconds.",
-			Buckets: prometheus.DefBuckets,
+			Buckets: []float64{1, 5, 10, 25, 50, 100, 250, 500, 1000, 2500, 5000},
 		},
 		[]string{"service", "method", "path"},
 	)
@@ -118,10 +118,10 @@ func logJSON(level, service, message, traceID, spanID string, extra ...map[strin
 }
 
 // initOTEL wires up the OpenTelemetry trace + metric providers.
-// - Trace exporter: OTLP gRPC to otel-collector:4317
-// - Metric exporter: OTLP gRPC to otel-collector:4317 (Prometheus can also
-//   scrape /metrics directly; OTEL metrics give a richer set)
-// - Propagator: W3C TraceContext + Baggage (the standard for HTTP)
+//   - Trace exporter: OTLP gRPC to otel-collector:4317
+//   - Metric exporter: OTLP gRPC to otel-collector:4317 (Prometheus can also
+//     scrape /metrics directly; OTEL metrics give a richer set)
+//   - Propagator: W3C TraceContext + Baggage (the standard for HTTP)
 func initOTEL(ctx context.Context, serviceName string) (func(context.Context) error, error) {
 	endpoint := getEnv("OTEL_EXPORTER_OTLP_ENDPOINT", "otel-collector:4317")
 	res, err := resource.New(ctx,
@@ -204,6 +204,9 @@ func metricsMiddleware(service string) gin.HandlerFunc {
 		start := time.Now()
 		c.Next()
 		path := c.FullPath()
+		if path == "/metrics" {
+			return
+		}
 		if path == "" {
 			path = "unknown"
 		}
@@ -281,10 +284,33 @@ func generateRequestID() string {
 	return uuid.New().String()
 }
 
-func callService(url, method, body, traceID string) (int, []byte) {
+func traceIDFromContext(ctx context.Context) string {
+	spanContext := trace.SpanFromContext(ctx).SpanContext()
+	if !spanContext.IsValid() {
+		return ""
+	}
+	return spanContext.TraceID().String()
+}
+
+func serviceAuthorization() string {
+	token := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{
+		"sub":  "booking-service",
+		"role": "SERVICE",
+		"iat":  time.Now().Unix(),
+		"exp":  time.Now().Add(5 * time.Minute).Unix(),
+	})
+	signed, err := token.SignedString([]byte(jwtSecret))
+	if err != nil {
+		logJSON("ERROR", "booking-service", fmt.Sprintf("Service token signing failed: %v", err), "", "", nil)
+		return ""
+	}
+	return "Bearer " + signed
+}
+
+func callService(parent context.Context, url, method, body, requestID string, authorization ...string) (int, []byte) {
 	// Start a child span for the outbound HTTP call. This is the bit that
 	// makes Apollo's request chains show up as a single trace in Tempo.
-	ctx, span := otel.Tracer("booking-service").Start(context.Background(),
+	ctx, span := otel.Tracer("booking-service").Start(parent,
 		fmt.Sprintf("HTTP %s %s", method, url),
 		trace.WithSpanKind(trace.SpanKindClient),
 	)
@@ -294,7 +320,10 @@ func callService(url, method, body, traceID string) (int, []byte) {
 	req.Header.Set("Content-Type", "application/json")
 	// Backwards-compat: keep X-Request-ID flowing for any service that
 	// hasn't yet been instrumented with OTEL.
-	req.Header.Set("X-Request-ID", traceID)
+	req.Header.Set("X-Request-ID", requestID)
+	if len(authorization) > 0 && authorization[0] != "" {
+		req.Header.Set("Authorization", authorization[0])
+	}
 	// Inject the W3C traceparent header so downstream services continue
 	// the same trace.
 	addTraceparent(req)
@@ -396,9 +425,9 @@ func main() {
 
 	r.GET("/metrics", gin.WrapH(prometheusHandler()))
 
-r.POST("/api/bookings", authRequired(), func(c *gin.Context) {
+	r.POST("/api/bookings", authRequired(), func(c *gin.Context) {
 		requestID, _ := c.Get("request_id")
-		traceID := requestID.(string)
+		traceID := traceIDFromContext(c.Request.Context())
 		claimsVal, _ := c.Get("claims")
 		claims := claimsVal.(jwt.MapClaims)
 		userID := claims["sub"].(string)
@@ -409,9 +438,9 @@ r.POST("/api/bookings", authRequired(), func(c *gin.Context) {
 			return
 		}
 
-		statusCode, body := callService(
+		statusCode, body := callService(c.Request.Context(),
 			fmt.Sprintf("%s/api/users/%s", identityServiceURL, userID),
-			"GET", "", traceID,
+			"GET", "", requestID.(string), c.GetHeader("Authorization"),
 		)
 		if statusCode != 200 {
 			logJSON("WARN", "booking-service", "User check failed", traceID, "", nil)
@@ -423,9 +452,9 @@ r.POST("/api/bookings", authRequired(), func(c *gin.Context) {
 			return
 		}
 
-		statusCode, body = callService(
+		statusCode, body = callService(c.Request.Context(),
 			fmt.Sprintf("%s/api/flights/%s", flightServiceURL, req.FlightID),
-			"GET", "", traceID,
+			"GET", "", requestID.(string),
 		)
 		if statusCode != 200 {
 			if statusCode == 404 {
@@ -442,9 +471,9 @@ r.POST("/api/bookings", authRequired(), func(c *gin.Context) {
 			return
 		}
 
-		statusCode, body = callService(
+		statusCode, body = callService(c.Request.Context(),
 			fmt.Sprintf("%s/api/flights/%s/seats", flightServiceURL, req.FlightID),
-			"PATCH", `{"delta": -1}`, traceID,
+			"PATCH", `{"delta": -1}`, requestID.(string), serviceAuthorization(),
 		)
 		if statusCode != 200 {
 			c.JSON(http.StatusConflict, gin.H{"error": "No seats available"})
@@ -473,7 +502,7 @@ r.POST("/api/bookings", authRequired(), func(c *gin.Context) {
 			"recipient": email,
 			"payload":   flight,
 		})
-		go callService(fmt.Sprintf("%s/api/notify", notificationSvcURL), "POST", string(notifyBody), traceID)
+		go callService(context.WithoutCancel(c.Request.Context()), fmt.Sprintf("%s/api/notify", notificationSvcURL), "POST", string(notifyBody), requestID.(string))
 
 		logJSON("INFO", "booking-service", "Booking created", traceID, "", map[string]interface{}{"ref": bk.BookingReference})
 		c.JSON(http.StatusCreated, bk)
@@ -512,8 +541,7 @@ r.POST("/api/bookings", authRequired(), func(c *gin.Context) {
 	})
 
 	r.GET("/api/bookings", authRequired(), func(c *gin.Context) {
-		requestID, _ := c.Get("request_id")
-		traceID := requestID.(string)
+		traceID := traceIDFromContext(c.Request.Context())
 		claimsVal, _ := c.Get("claims")
 		claims := claimsVal.(jwt.MapClaims)
 		userID := claims["sub"].(string)
@@ -547,7 +575,7 @@ r.POST("/api/bookings", authRequired(), func(c *gin.Context) {
 
 	r.GET("/api/admin/bookings", adminRequired(), func(c *gin.Context) {
 		requestID, _ := c.Get("request_id")
-		traceID := requestID.(string)
+		traceID := traceIDFromContext(c.Request.Context())
 		claimsVal, _ := c.Get("claims")
 		claims := claimsVal.(jwt.MapClaims)
 		role := claims["role"].(string)
@@ -580,7 +608,7 @@ r.POST("/api/bookings", authRequired(), func(c *gin.Context) {
 		}
 
 		userMap := map[string]string{}
-		statusCode, body := callService(fmt.Sprintf("%s/api/admin/users", identityServiceURL), "GET", "", traceID)
+		statusCode, body := callService(c.Request.Context(), fmt.Sprintf("%s/api/admin/users", identityServiceURL), "GET", "", requestID.(string), c.GetHeader("Authorization"))
 		if statusCode == 200 {
 			var result struct {
 				Users []struct {
@@ -625,7 +653,7 @@ r.POST("/api/bookings", authRequired(), func(c *gin.Context) {
 
 	r.DELETE("/api/bookings/:id", authRequired(), func(c *gin.Context) {
 		requestID, _ := c.Get("request_id")
-		traceID := requestID.(string)
+		traceID := traceIDFromContext(c.Request.Context())
 		claimsVal, _ := c.Get("claims")
 		claims := claimsVal.(jwt.MapClaims)
 		userID := claims["sub"].(string)
@@ -660,9 +688,9 @@ r.POST("/api/bookings", authRequired(), func(c *gin.Context) {
 			return
 		}
 
-		go callService(
+		go callService(context.WithoutCancel(c.Request.Context()),
 			fmt.Sprintf("%s/api/flights/%s/seats", flightServiceURL, bk.FlightID),
-			"PATCH", `{"delta": 1}`, traceID,
+			"PATCH", `{"delta": 1}`, requestID.(string), serviceAuthorization(),
 		)
 
 		email, _ := claims["email"].(string)
@@ -671,7 +699,7 @@ r.POST("/api/bookings", authRequired(), func(c *gin.Context) {
 			"recipient": email,
 			"payload":   map[string]string{"bookingReference": bk.BookingReference},
 		})
-		go callService(fmt.Sprintf("%s/api/notify", notificationSvcURL), "POST", string(notifyBody), traceID)
+		go callService(context.WithoutCancel(c.Request.Context()), fmt.Sprintf("%s/api/notify", notificationSvcURL), "POST", string(notifyBody), requestID.(string))
 
 		logJSON("INFO", "booking-service", "Booking cancelled", traceID, "", map[string]interface{}{"id": id})
 		c.JSON(http.StatusOK, gin.H{"message": "Booking cancelled"})

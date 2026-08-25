@@ -1,8 +1,9 @@
+{{- if .Values.observability.enabled }}
 apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: grafana
-  namespace: apollo-observability
+  namespace: {{ .Values.observability.namespace }}
   labels:
     app.kubernetes.io/name: grafana
     app.kubernetes.io/part-of: apollo-airlines
@@ -22,13 +23,15 @@ spec:
       terminationGracePeriodSeconds: 30
       containers:
         - name: grafana
-          image: grafana/grafana:10.4.2
+          image: {{ .Values.observability.grafana.image | quote }}
           imagePullPolicy: IfNotPresent
           env:
             - name: GF_SECURITY_ADMIN_USER
-              value: admin
+              valueFrom:
+                secretKeyRef: { name: grafana-admin, key: username }
             - name: GF_SECURITY_ADMIN_PASSWORD
-              value: apollo-admin
+              valueFrom:
+                secretKeyRef: { name: grafana-admin, key: password }
             - name: GF_USERS_ALLOW_SIGN_UP
               value: "false"
             - name: GF_AUTH_ANONYMOUS_ENABLED
@@ -50,13 +53,10 @@ spec:
               mountPath: /etc/grafana/provisioning/datasources
             - name: dashboards
               mountPath: /var/lib/grafana/dashboards
+            - name: dashboard-provider
+              mountPath: /etc/grafana/provisioning/dashboards
           resources:
-            requests:
-              cpu: 100m
-              memory: 256Mi
-            limits:
-              cpu: 500m
-              memory: 512Mi
+            {{- toYaml .Values.observability.grafana.resources | nindent 12 }}
           livenessProbe:
             httpGet:
               path: /api/health
@@ -77,27 +77,44 @@ spec:
           configMap:
             name: grafana-datasources
         - name: dashboards
-          configMap:
-            name: grafana-dashboards
+          projected:
+            sources:
+              - configMap:
+                  name: grafana-dashboard-overview
+                  items: [{ key: dashboard.json, path: overview.json }]
+              - configMap:
+                  name: grafana-dashboard-booking
+                  items: [{ key: dashboard.json, path: booking.json }]
+              - configMap:
+                  name: grafana-dashboard-errors
+                  items: [{ key: dashboard.json, path: errors.json }]
+              - configMap:
+                  name: grafana-dashboard-saturation
+                  items: [{ key: dashboard.json, path: runtime.json }]
+              - configMap:
+                  name: grafana-dashboard-trace-viewer
+                  items: [{ key: dashboard.json, path: traces.json }]
+        - name: dashboard-provider
+          configMap: { name: grafana-dashboard-provider }
 ---
 apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
   name: grafana-data
-  namespace: apollo-observability
+  namespace: {{ .Values.observability.namespace }}
   labels:
     app.kubernetes.io/name: grafana
 spec:
   accessModes: [ReadWriteOnce]
   resources:
     requests:
-      storage: 1Gi
+      storage: {{ .Values.observability.grafana.storage }}
 ---
 apiVersion: v1
 kind: Service
 metadata:
   name: grafana
-  namespace: apollo-observability
+  namespace: {{ .Values.observability.namespace }}
   labels:
     app.kubernetes.io/name: grafana
     app.kubernetes.io/part-of: apollo-airlines
@@ -110,3 +127,15 @@ spec:
       port: 3000
       targetPort: 3000
       protocol: TCP
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: grafana-admin
+  namespace: {{ .Values.observability.namespace }}
+type: Opaque
+stringData:
+  username: {{ .Values.observability.grafana.adminUser | quote }}
+  password: {{ .Values.observability.grafana.adminPassword | quote }}
+
+{{- end }}

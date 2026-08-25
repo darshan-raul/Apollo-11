@@ -61,7 +61,7 @@ no NodePort.
 
 ```
 stages/stage2/
-├── code/                        # shared source for all sets (no code changes in stage 2)
+├── code/                        # shared source; includes booking/auth reliability backports
 ├── set1-baseline/               # ← Set 1, NodePort
 ├── set2-ingress/                # ← Set 2, Traefik + NodePort
 ├── set3-traefik-dashboard/      # ← Set 3, Traefik + dashboard

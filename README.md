@@ -117,16 +117,14 @@ Frontend → Booking Service → Identity Service
 
 ---
 
-### Stage 6 : 📡 Mission Operations – Observability ☐ [📖 README](stages/stage6/README.md)
+### Stage 6 : 📡 Mission Operations – Observability ✅ [📖 README](stages/stage6/README.md)
 
-* ☐ Collect and query metrics using **Prometheus**.
-* ☐ Visualize metrics and build dashboards using **Grafana**.
-* ☐ Centralize logs using **Loki** and correlate them with metrics.
-* ☐ Trace requests across services using **OpenTelemetry**.
-* ☐ Debug using distributed traces.
-* ☐ Use **DaemonSets** to deploy monitoring and system agents on every node.
-* ☐ use **kubeshark** to analyze packets
-* ☐ Debug running Pods using **ephemeral containers** without restarting workloads.
+* ✅ Collect and query metrics using **Prometheus**.
+* ✅ Visualize metrics and build dashboards using **Grafana**.
+* ✅ Centralize logs using **Loki** and correlate them with metrics.
+* ✅ Trace requests across services using **OpenTelemetry**.
+* ✅ Debug using distributed traces.
+* ✅ Use **DaemonSets** to deploy monitoring and system agents on every node.
 
 ---
 
@@ -168,6 +166,8 @@ Frontend → Booking Service → Identity Service
 * ☐ Hook into Pod and container lifecycle events using **lifecycle hooks**.
 * ☐ Implement a **service mesh** using **Linkerd** for traffic management and security.
 * ☐ Perform **progressive deployments** using **Argo Rollouts**.
+* ☐ Use **Kubeshark** to analyze packets and service traffic.
+* ☐ Debug running Pods using **ephemeral containers** without restarting workloads.
 * ☐ Build a full **DevSecOps pipeline** integrating security into delivery.
 * ☐ Implement backup and restore strategies using **Velero**.
 * ☐ Introduce controlled failures using **Chaos Mesh** to test resilience.

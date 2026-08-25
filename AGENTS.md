@@ -98,7 +98,7 @@ Apollo11/
 │   │   ├── k8s/             # apps/ (probes+resources), pdb/ (NEW), gateway/, metallb/, jobs/, config/
 │   │   └── scripts/         # apply.sh, teardown.sh, verify.sh (130 checks), build-images.sh
 │   ├── stage5/              # Helm chart + Kustomize overlays + GitHub Actions + ArgoCD GitOps module
-│   ├── stage6/              # OTEL SDK + real /metrics + Prometheus + Grafana + Tempo + Loki + Promtail
+│   ├── stage6/              # OTEL SDK + real /metrics + Prometheus + Grafana + Tempo + Loki + Alloy
 │   ├── stage7/              # HPA, VPA, Redis cache, affinity/taints
 │   ├── stage8/              # RBAC, SecurityContext, OPA, Vault
 │   ├── stage9/              # EKS/GKE Terraform provisioning
@@ -285,7 +285,7 @@ rebuilds the frontend image with its own URL pattern. The shared
 (or a sane localhost default) so build args take effect. `apply.sh` handles
 both build and kind load.
 
-**Stage 2 code changes vs stage1:** None (networking layer only — `stages/stage2/code/` is a snapshot of `stages/stage1/code/`).
+**Stage 2 code changes vs stage1:** No networking-feature changes. A later correctness backport makes booking forward the user's JWT to Identity, use a short-lived `SERVICE` JWT for internal Flight seat mutations, and bound Notification's Redis startup wait. The same reliability contract is carried through Stages 3–6.
 
 **Lessons learned in this restage:**
 - The 4-set → 5-set restage happened because the Envoy Gateway set
@@ -570,21 +570,25 @@ Dev and staging auto-converge on git push; prod is human-gated and pins the imag
 
 **Location:** `stages/stage6/`
 
-**Status:** ⚠️ Pending implementation completion. Feature code and manifests exist and compile/render statically, but Stage 6 inherits the pre-repair Stage 5 packaging, has duplicate `observability` values, and creates `ServiceMonitor` resources without a verified Prometheus Operator/CRD lifecycle. It must be rebased onto the trusted Stage 5 boundary and pass fresh-cluster observability tests.
+**Status:** ✅ Complete and locally verified (2026-08-25). Helm/dev passed **190/190** and Kustomize/dev passed **180/180** on clean lifecycles, including real metrics, healthy Prometheus targets, the Grafana Envoy route, an end-to-end booking trace in Tempo, and Alloy log delivery to Loki. Both paths completed a full purge with no Stage 6 namespace, PVC, controller, or related-CRD residue. The four-Application Argo CD layout validates statically; live reconciliation awaits a Git revision containing the uncommitted Stage 6 work.
 
 **k8s manifest changes:**
-- **Prometheus** (Deployment, 5Gi PVC) — config + 16 alert rules in 4 groups (services, latency, errors, infrastructure)
+- **Prometheus Operator v0.93.0** — bundled outside the chart so Helm's release Secret stays below Kubernetes' 1 MiB object limit
+- **Prometheus v3.13.1** (operator-managed, 5Gi PVC) — 5 ServiceMonitors + Apollo alert rules
 - **Grafana** (Deployment, 1Gi PVC) — 5 dashboards as ConfigMaps, 3 datasources (Prometheus, Loki, Tempo)
 - **OTEL Collector** (DaemonSet) — OTLP gRPC receiver on :4317, exports to Tempo
 - **Tempo** (Deployment, 5Gi PVC) — single-binary trace backend, 48h retention
-- **Loki** (Deployment, 5Gi PVC) + **Promtail** (DaemonSet) — log aggregation, 7d retention
+- **Loki** (Deployment, 5Gi PVC) + **Grafana Alloy** (DaemonSet) — log aggregation and per-node collection
 - **5 ServiceMonitors** (one per backend) — Prometheus auto-discovers /metrics endpoints
 - **Grafana HTTPRoute** + **ReferenceGrant** — exposed at `grafana.apollo.local` via existing Envoy Gateway
-- **New namespace** `apollo-observability` with 1 SA + ClusterRole binding (read-only across all namespaces for ServiceMonitor discovery)
+- **New namespace** `apollo-observability` with read-only cluster discovery RBAC
+- **Argo CD ownership** — dev/staging/prod Applications deploy tenant workloads with observability disabled; a fourth shared Application owns the observability namespace and resources
 
 **Code changes vs stage5:**
 - **All 4 Go services** (booking, flight, search, notification): +OTEL SDK init (otlptracegrpc, otlpmetricgrpc), otelgin middleware, promhttp /metrics handler with real `http_requests_total` + `http_request_duration_ms` counters, logJSON pulls trace_id/span_id from active OTEL span context, outbound HTTP clients inject W3C `traceparent` header
 - **Identity (Python)**: +OTEL SDK init, FastAPIInstrumentor, Psycopg2Instrumentor, requests instrumentation, prometheus_client /metrics with real exposition format
+- **Booking/Flight service authentication:** booking forwards the caller JWT only to Identity and mints a 5-minute `role=SERVICE` JWT for internal seat decrement/restore calls; Flight accepts `SERVICE` or `ADMIN` on that internal endpoint. The trace test uses the passenger account and verifies both booking and cancellation.
+- **Canonical schema contract:** Stage 5/6 packaging uses `booking_reference VARCHAR(20)` without a mandatory `total_price`, and Flight retains `updated_at`, matching `SPEC.md` and the earlier stage schemas.
 - **All 5 backend Dockerfiles**: unchanged (new deps picked up via `go mod download` / `pip install -r requirements.txt`)
 - **Frontend**: unchanged (browser-side RUM OTEL is a Stage 8+ concern)
 - **`/metrics` endpoint**: now returns Prometheus exposition format (`# HELP` / `# TYPE` lines, real counter values) instead of placeholder JSON
@@ -777,7 +781,7 @@ Needed but missing: kind, kustomize, k6, trivy, opa, kyverno, prometheus, grafan
 | Stage 3 | ✅ Complete | 4 StatefulSets + PVCs + entrypoint-hook schema + seed jobs, 53/53 verify (Envoy+MetalLB access stack persists for stages 4–11) |
 | Stage 4 | ✅ Complete | Probes (startup/live/ready) on 6 apps, Guaranteed QoS on all 10 pods, PDBs for booking + frontend, graceful SIGTERM on all backends, frontend build-time URLs, 130/130 verify |
 | Stage 5 | ✅ Complete locally | Helm 153/153, Kustomize 142/142, Argo CD 74/74; all clean lifecycle tests passed. Hosted Actions/GHCR publication awaits the next push/tag. |
-| Stage 6 | ⚠️ Pending | Existing OTEL/metrics/manifests are a prototype: rebase on trusted Stage 5, resolve duplicate values and Prometheus Operator/ServiceMonitor lifecycle, then verify end to end. |
+| Stage 6 | ✅ Complete locally | Helm 190/190 and Kustomize dev 180/180; full metrics/traces/logs behavior and clean purges verified. Argo CD's 4-Application layout validates statically; live reconciliation awaits the next explicitly authorized Git revision. |
 | Stage 7–11 | ⚠️ Pending | Feature prototypes or legacy code exist, but none is a trusted implementation boundary yet. |
 
 ---
