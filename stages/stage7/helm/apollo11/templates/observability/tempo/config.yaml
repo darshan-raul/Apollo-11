@@ -1,3 +1,4 @@
+{{- if .Values.observability.enabled }}
 # Tempo single-binary configuration. Designed for a small cluster (kind).
 #
 # Storage: filesystem-backed. The PVC is a 5Gi local-path volume; on a
@@ -13,7 +14,7 @@ apiVersion: v1
 kind: ConfigMap
 metadata:
   name: tempo-config
-  namespace: apollo-observability
+  namespace: {{ .Values.observability.namespace }}
   labels:
     app.kubernetes.io/name: tempo
     app.kubernetes.io/part-of: apollo-airlines
@@ -24,7 +25,13 @@ data:
       http_listen_port: 3100
 
     distributor:
-      receivers:                           # this configuration will be ignored when using the v2 migration approach (default in Tempo 2.x)
+      receivers:
+        otlp:
+          protocols:
+            grpc:
+              endpoint: 0.0.0.0:4317
+            http:
+              endpoint: 0.0.0.0:4318
         jaeger:
           protocols:
             thrift_http:
@@ -33,7 +40,6 @@ data:
     ingester:
       trace_idle_period: 10s
       max_block_duration: 5m
-      max_local_blocks_per_tracer: 10000
 
     compactor:
       compaction:
@@ -48,14 +54,4 @@ data:
           path: /var/tempo/blocks
         pool:
           max_workers: 100
-
-    querier:
-      frontend_worker:
-        frontend_address: tempo-query:9095
-
-    query_range_lookback_duration: 0
-
-    overrides:
-      defaults:
-        metrics_generator:
-          processors: [service-graphs, span-metrics]
+{{- end }}

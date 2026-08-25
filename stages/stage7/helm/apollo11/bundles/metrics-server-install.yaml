@@ -136,6 +136,9 @@ spec:
         - --cert-dir=/tmp
         - --secure-port=10250
         - --kubelet-preferred-address-types=InternalIP,ExternalIP,Hostname
+        # kind kubelets use self-signed serving certificates that do not carry
+        # the node InternalIP as a SAN. This is required for the local lab.
+        - --kubelet-insecure-tls
         - --kubelet-use-node-status-port
         - --metric-resolution=15s
         image: registry.k8s.io/metrics-server/metrics-server:v0.8.1

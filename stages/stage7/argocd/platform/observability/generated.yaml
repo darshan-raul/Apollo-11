@@ -1,0 +1,983 @@
+# Generated from the Stage 7 Helm chart for the shared Argo CD observability Application.
+# Regenerate when observability templates or values change.
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: observability-stack
+  namespace: apollo-observability
+  labels:
+    app.kubernetes.io/name: apollo-observability
+    app.kubernetes.io/part-of: apollo-airlines
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: grafana-admin
+  namespace: apollo-observability
+type: Opaque
+stringData:
+  username: admin
+  password: apollo-admin
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: grafana-dashboard-booking
+  namespace: apollo-observability
+  labels:
+    app.kubernetes.io/name: grafana
+    app.kubernetes.io/part-of: apollo-airlines
+    grafana_dashboard: '1'
+data:
+  dashboard.json: '{"annotations":{"list":[]},"editable":true,"fiscalYearStartMonth":0,"graphTooltip":1,"id":null,"uid":"apollo-booking","title":"Booking
+    Service","tags":["apollo"],"timezone":"browser","schemaVersion":39,"version":1,"refresh":"30s","time":{"from":"now-1h","to":"now"},"templating":{"list":[]},"panels":[{"id":1,"type":"stat","title":"Booking
+    p50 (ms)","datasource":{"type":"prometheus","uid":"prometheus"},"gridPos":{"h":4,"w":6,"x":0,"y":0},"targets":[{"datasource":{"type":"prometheus","uid":"prometheus"},"expr":"histogram_quantile(0.5,
+    sum by (le) (rate(http_request_duration_ms_bucket{service=\"booking\"}[5m])))","refId":"A"}],"options":{"reduceOptions":{"calcs":["lastNotNull"]},"colorMode":"value","graphMode":"area"},"fieldConfig":{"defaults":{"thresholds":{"mode":"absolute","steps":[{"color":"green","value":null},{"color":"yellow","value":80},{"color":"red","value":95}]},"unit":"ms"}}},{"id":2,"type":"stat","title":"Booking
+    p95 (ms)","datasource":{"type":"prometheus","uid":"prometheus"},"gridPos":{"h":4,"w":6,"x":12,"y":0},"targets":[{"datasource":{"type":"prometheus","uid":"prometheus"},"expr":"histogram_quantile(0.95,
+    sum by (le) (rate(http_request_duration_ms_bucket{service=\"booking\"}[5m])))","refId":"A"}],"options":{"reduceOptions":{"calcs":["lastNotNull"]},"colorMode":"value","graphMode":"area"},"fieldConfig":{"defaults":{"thresholds":{"mode":"absolute","steps":[{"color":"green","value":null},{"color":"yellow","value":80},{"color":"red","value":95}]},"unit":"ms"}}},{"id":3,"type":"stat","title":"Booking
+    p99 (ms)","datasource":{"type":"prometheus","uid":"prometheus"},"gridPos":{"h":4,"w":6,"x":0,"y":4},"targets":[{"datasource":{"type":"prometheus","uid":"prometheus"},"expr":"histogram_quantile(0.99,
+    sum by (le) (rate(http_request_duration_ms_bucket{service=\"booking\"}[5m])))","refId":"A"}],"options":{"reduceOptions":{"calcs":["lastNotNull"]},"colorMode":"value","graphMode":"area"},"fieldConfig":{"defaults":{"thresholds":{"mode":"absolute","steps":[{"color":"green","value":null},{"color":"yellow","value":80},{"color":"red","value":95}]},"unit":"ms"}}},{"id":4,"type":"stat","title":"Booking
+    Error Rate","datasource":{"type":"prometheus","uid":"prometheus"},"gridPos":{"h":4,"w":6,"x":12,"y":4},"targets":[{"datasource":{"type":"prometheus","uid":"prometheus"},"expr":"sum(rate(http_requests_total{service=\"booking\",status=~\"5..\"}[5m]))
+    / sum(rate(http_requests_total{service=\"booking\"}[5m]))","refId":"A"}],"options":{"reduceOptions":{"calcs":["lastNotNull"]},"colorMode":"value","graphMode":"area"},"fieldConfig":{"defaults":{"thresholds":{"mode":"absolute","steps":[{"color":"green","value":null},{"color":"yellow","value":80},{"color":"red","value":95}]},"unit":"percentunit"}}},{"id":5,"type":"timeseries","title":"Booking
+    latency percentiles","datasource":{"type":"prometheus","uid":"prometheus"},"gridPos":{"h":8,"w":12,"x":0,"y":8},"targets":[{"datasource":{"type":"prometheus","uid":"prometheus"},"expr":"histogram_quantile(0.5,
+    sum by (le) (rate(http_request_duration_ms_bucket{service=\"booking\"}[5m])))","refId":"A"}],"fieldConfig":{"defaults":{"unit":"ms","custom":{"lineWidth":2,"fillOpacity":10,"showPoints":"never"}}},"options":{"legend":{"displayMode":"table","placement":"bottom","showLegend":true},"tooltip":{"mode":"multi","sort":"desc"}}},{"id":6,"type":"timeseries","title":"Booking
+    requests by status code","datasource":{"type":"prometheus","uid":"prometheus"},"gridPos":{"h":8,"w":12,"x":12,"y":8},"targets":[{"datasource":{"type":"prometheus","uid":"prometheus"},"expr":"sum
+    by (status) (rate(http_requests_total{service=\"booking\"}[5m]))","refId":"A"}],"fieldConfig":{"defaults":{"unit":"short","custom":{"lineWidth":2,"fillOpacity":10,"showPoints":"never"}}},"options":{"legend":{"displayMode":"table","placement":"bottom","showLegend":true},"tooltip":{"mode":"multi","sort":"desc"}}}],"description":"Detailed
+    latency and error metrics for the booking service."}'
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: grafana-dashboard-errors
+  namespace: apollo-observability
+  labels:
+    app.kubernetes.io/name: grafana
+    app.kubernetes.io/part-of: apollo-airlines
+    grafana_dashboard: '1'
+data:
+  dashboard.json: '{"annotations":{"list":[]},"editable":true,"fiscalYearStartMonth":0,"graphTooltip":1,"id":null,"uid":"apollo-errors","title":"Service
+    Errors","tags":["apollo"],"timezone":"browser","schemaVersion":39,"version":1,"refresh":"30s","time":{"from":"now-1h","to":"now"},"templating":{"list":[]},"panels":[{"id":1,"type":"timeseries","title":"5xx
+    rate by service","datasource":{"type":"prometheus","uid":"prometheus"},"gridPos":{"h":8,"w":24,"x":0,"y":0},"targets":[{"datasource":{"type":"prometheus","uid":"prometheus"},"expr":"sum
+    by (service) (rate(http_requests_total{status=~\"5..\"}[5m]))","refId":"A"}],"fieldConfig":{"defaults":{"unit":"short","custom":{"lineWidth":2,"fillOpacity":10,"showPoints":"never"}}},"options":{"legend":{"displayMode":"table","placement":"bottom","showLegend":true},"tooltip":{"mode":"multi","sort":"desc"}}},{"id":2,"type":"timeseries","title":"4xx
+    rate by service","datasource":{"type":"prometheus","uid":"prometheus"},"gridPos":{"h":8,"w":24,"x":0,"y":8},"targets":[{"datasource":{"type":"prometheus","uid":"prometheus"},"expr":"sum
+    by (service) (rate(http_requests_total{status=~\"4..\"}[5m]))","refId":"A"}],"fieldConfig":{"defaults":{"unit":"short","custom":{"lineWidth":2,"fillOpacity":10,"showPoints":"never"}}},"options":{"legend":{"displayMode":"table","placement":"bottom","showLegend":true},"tooltip":{"mode":"multi","sort":"desc"}}},{"id":3,"type":"timeseries","title":"Error
+    rate by service (%)","datasource":{"type":"prometheus","uid":"prometheus"},"gridPos":{"h":8,"w":24,"x":0,"y":16},"targets":[{"datasource":{"type":"prometheus","uid":"prometheus"},"expr":"sum
+    by (service) (rate(http_requests_total{status=~\"5..\"}[5m])) / sum by (service)
+    (rate(http_requests_total[5m]))","refId":"A"}],"fieldConfig":{"defaults":{"unit":"percentunit","custom":{"lineWidth":2,"fillOpacity":10,"showPoints":"never"}}},"options":{"legend":{"displayMode":"table","placement":"bottom","showLegend":true},"tooltip":{"mode":"multi","sort":"desc"}}}],"description":"Error
+    rate and status code distribution per service."}'
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: grafana-dashboard-overview
+  namespace: apollo-observability
+  labels:
+    app.kubernetes.io/name: grafana
+    app.kubernetes.io/part-of: apollo-airlines
+    grafana_dashboard: '1'
+data:
+  dashboard.json: '{"editable":true,"uid":"apollo-overview","title":"Apollo Overview","tags":["apollo"],"timezone":"browser","schemaVersion":39,"version":1,"refresh":"30s","time":{"from":"now-1h","to":"now"},"panels":[{"id":1,"type":"stat","title":"Backend
+    targets up","datasource":{"type":"prometheus","uid":"prometheus"},"gridPos":{"h":4,"w":8,"x":0,"y":0},"targets":[{"expr":"count(up{namespace=\"apollo-airlines-dev-apps\"}
+    == 1)","refId":"A"}]},{"id":2,"type":"timeseries","title":"Requests/sec by service","datasource":{"type":"prometheus","uid":"prometheus"},"gridPos":{"h":8,"w":12,"x":0,"y":4},"targets":[{"expr":"sum
+    by (service) (rate(http_requests_total[5m]))","refId":"A"}]},{"id":3,"type":"timeseries","title":"p95
+    latency by service","datasource":{"type":"prometheus","uid":"prometheus"},"gridPos":{"h":8,"w":12,"x":12,"y":4},"targets":[{"expr":"histogram_quantile(0.95,
+    sum by (le, service) (rate(http_request_duration_ms_bucket[5m])))","refId":"A"}]}]}'
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: grafana-dashboard-saturation
+  namespace: apollo-observability
+  labels:
+    app.kubernetes.io/name: grafana
+    app.kubernetes.io/part-of: apollo-airlines
+data:
+  dashboard.json: '{"editable":true,"uid":"apollo-runtime","title":"Service Runtime","tags":["apollo"],"timezone":"browser","schemaVersion":39,"version":1,"refresh":"30s","time":{"from":"now-1h","to":"now"},"panels":[{"id":1,"type":"timeseries","title":"Process
+    CPU by target","datasource":{"type":"prometheus","uid":"prometheus"},"gridPos":{"h":10,"w":12,"x":0,"y":0},"targets":[{"expr":"sum
+    by (job) (rate(process_cpu_seconds_total[5m]))","refId":"A"}]},{"id":2,"type":"timeseries","title":"Resident
+    memory by target","datasource":{"type":"prometheus","uid":"prometheus"},"gridPos":{"h":10,"w":12,"x":12,"y":0},"targets":[{"expr":"sum
+    by (job) (process_resident_memory_bytes)","refId":"A"}]}]}'
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: grafana-dashboard-trace-viewer
+  namespace: apollo-observability
+  labels:
+    app.kubernetes.io/name: grafana
+    app.kubernetes.io/part-of: apollo-airlines
+    grafana_dashboard: '1'
+data:
+  dashboard.json: '{"annotations":{"list":[]},"editable":true,"fiscalYearStartMonth":0,"graphTooltip":1,"id":null,"uid":"apollo-trace-viewer","title":"Trace
+    Viewer","tags":["apollo"],"timezone":"browser","schemaVersion":39,"version":1,"refresh":"30s","time":{"from":"now-1h","to":"now"},"templating":{"list":[]},"panels":[{"id":1,"type":"traces","title":"Recent
+    traces (booking service)","datasource":{"type":"tempo","uid":"tempo"},"gridPos":{"h":16,"w":24,"x":0,"y":0},"targets":[{"datasource":{"type":"tempo","uid":"tempo"},"query":"{
+    service.name = \"booking\" }","queryType":"traceql","refId":"A"}],"options":{"showTraceId":true}}],"description":"Browse
+    Tempo traces by service and operation."}'
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: grafana-datasources
+  namespace: apollo-observability
+  labels:
+    app.kubernetes.io/name: grafana
+    app.kubernetes.io/part-of: apollo-airlines
+data:
+  alerting.yaml: "apiVersion: 1\ngroups:\n  - orgId: 1\n    name: apollo-alerts\n\
+    \    folder: Apollo\n    interval: 1m\n    rules:\n      - uid: apollo-booking-p95\n\
+    \        title: Apollo booking p95 latency\n        condition: A\n        data:\n\
+    \          - refId: A\n            datasourceUid: prometheus\n            relativeTimeRange:\n\
+    \              from: 600\n              to: 0\n            model:\n          \
+    \    expr: histogram_quantile(0.95, sum by (le) (rate(http_request_duration_ms_bucket{service=\"\
+    booking\"}[5m])))\n              intervalMs: 1000\n              maxDataPoints:\
+    \ 43200\n              refId: A\n        noDataState: NoData\n        execErrState:\
+    \ Alerting\n        for: 5m\n        annotations:\n          summary: Booking\
+    \ p95 latency over threshold\n      - uid: apollo-error-rate\n        title: Apollo\
+    \ 5xx error rate\n        condition: A\n        data:\n          - refId: A\n\
+    \            datasourceUid: prometheus\n            relativeTimeRange:\n     \
+    \         from: 600\n              to: 0\n            model:\n              expr:\
+    \ sum by (service) (rate(http_requests_total{status=~\"5..\"}[5m])) / sum by (service)\
+    \ (rate(http_requests_total[5m]))\n              intervalMs: 1000\n          \
+    \    maxDataPoints: 43200\n              refId: A\n        noDataState: NoData\n\
+    \        execErrState: Alerting\n        for: 5m\n        annotations:\n     \
+    \     summary: Service 5xx rate elevated\n"
+  datasources.yaml: "apiVersion: 1\ndatasources:\n  - name: Prometheus\n    uid: prometheus\n\
+    \    type: prometheus\n    access: proxy\n    url: http://prometheus:9090\n  \
+    \  isDefault: true\n    editable: true\n    jsonData:\n      timeInterval: 30s\n\
+    \      manageAlerts: true\n  - name: Loki\n    uid: loki\n    type: loki\n   \
+    \ access: proxy\n    url: http://loki:3100\n    editable: true\n    jsonData:\n\
+    \      maxLines: 1000\n  - name: Tempo\n    uid: tempo\n    type: tempo\n    access:\
+    \ proxy\n    url: http://tempo:3100\n    editable: true\n    jsonData:\n     \
+    \ tracesToLogsV2: {}\n      serviceMap:\n        datasourceUid: prometheus\n \
+    \     nodeGraph:\n        enabled: true\n      search:\n        hide: false\n"
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: grafana-dashboard-provider
+  namespace: apollo-observability
+data:
+  dashboards.yaml: "apiVersion: 1\nproviders:\n  - name: Apollo11\n    folder: Apollo11\n\
+    \    type: file\n    disableDeletion: false\n    editable: true\n    options:\n\
+    \      path: /var/lib/grafana/dashboards\n"
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: alloy-config
+  namespace: apollo-observability
+data:
+  config.alloy: "discovery.kubernetes \"pods\" {\n  role = \"pod\"\n  selectors {\n\
+    \    role  = \"pod\"\n    field = \"spec.nodeName=\" + sys.env(\"NODE_NAME\")\n\
+    \  }\n}\n\ndiscovery.relabel \"pod_logs\" {\n  targets = discovery.kubernetes.pods.targets\n\
+    \  rule {\n    source_labels = [\"__meta_kubernetes_namespace\"]\n    target_label\
+    \  = \"namespace\"\n  }\n  rule {\n    source_labels = [\"__meta_kubernetes_pod_label_app\"\
+    ]\n    target_label  = \"service\"\n  }\n  rule {\n    source_labels = [\"__meta_kubernetes_pod_name\"\
+    ]\n    target_label  = \"pod\"\n  }\n  rule {\n    source_labels = [\"__meta_kubernetes_pod_container_name\"\
+    ]\n    target_label  = \"container\"\n  }\n}\n\nloki.source.kubernetes \"pods\"\
+    \ {\n  targets    = discovery.relabel.pod_logs.output\n  forward_to = [loki.write.local.receiver]\n\
+    }\n\nloki.write \"local\" {\n  endpoint {\n    url = \"http://loki.apollo-observability.svc.cluster.local:3100/loki/api/v1/push\"\
+    \n  }\n}\n"
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: loki-config
+  namespace: apollo-observability
+  labels:
+    app.kubernetes.io/name: loki
+    app.kubernetes.io/part-of: apollo-airlines
+data:
+  loki.yaml: "auth_enabled: false\n\nserver:\n  http_listen_address: 0.0.0.0\n  http_listen_port:\
+    \ 3100\n  log_level: info\n  grpc_listen_port: 9096\n\ncommon:\n  path_prefix:\
+    \ /var/loki\n  storage:\n    filesystem:\n      chunks_directory: /var/loki/chunks\n\
+    \      rules_directory: /var/loki/rules\n  replication_factor: 1\n  ring:\n  \
+    \  kvstore:\n      store: inmemory\n\nschema_config:\n  configs:\n    - from:\
+    \ 2024-01-01\n      store: tsdb\n      object_store: filesystem\n      schema:\
+    \ v13\n      index:\n        prefix: index_\n        period: 24h\n\nlimits_config:\n\
+    \  retention_period: 168h\n  ingestion_rate_mb: 16\n  ingestion_burst_size_mb:\
+    \ 24\n  reject_old_samples: true\n  reject_old_samples_max_age: 168h\n  max_query_parallelism:\
+    \ 32\n  max_streams_per_user: 0\n\nquery_range:\n  results_cache:\n    cache:\n\
+    \      embedded_cache:\n        enabled: true\n        max_size_mb: 100\n\nanalytics:\n\
+    \  reporting_enabled: false\n"
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: otel-collector-config
+  namespace: apollo-observability
+data:
+  relay.yaml: "receivers:\n  otlp:\n    protocols:\n      grpc: { endpoint: 0.0.0.0:4317\
+    \ }\n      http: { endpoint: 0.0.0.0:4318 }\nprocessors:\n  memory_limiter:\n\
+    \    check_interval: 1s\n    limit_percentage: 75\n    spike_limit_percentage:\
+    \ 20\n  batch:\n    timeout: 2s\nexporters:\n  otlp/tempo:\n    endpoint: tempo.apollo-observability.svc.cluster.local:4317\n\
+    \    tls: { insecure: true }\n  debug:\n    verbosity: basic\nextensions:\n  health_check:\
+    \ { endpoint: 0.0.0.0:13133 }\nservice:\n  extensions: [health_check]\n  pipelines:\n\
+    \    traces:\n      receivers: [otlp]\n      processors: [memory_limiter, batch]\n\
+    \      exporters: [otlp/tempo]\n    metrics:\n      receivers: [otlp]\n      processors:\
+    \ [memory_limiter, batch]\n      exporters: [debug]\n"
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: tempo-config
+  namespace: apollo-observability
+  labels:
+    app.kubernetes.io/name: tempo
+    app.kubernetes.io/part-of: apollo-airlines
+data:
+  tempo.yaml: "server:\n  http_listen_address: 0.0.0.0\n  http_listen_port: 3100\n\
+    \ndistributor:\n  receivers:\n    otlp:\n      protocols:\n        grpc:\n   \
+    \       endpoint: 0.0.0.0:4317\n        http:\n          endpoint: 0.0.0.0:4318\n\
+    \    jaeger:\n      protocols:\n        thrift_http:\n          endpoint: 0.0.0.0:14268\n\
+    \ningester:\n  trace_idle_period: 10s\n  max_block_duration: 5m\n\ncompactor:\n\
+    \  compaction:\n    block_retention: 48h\n\nstorage:\n  trace:\n    backend: local\n\
+    \    wal:\n      path: /var/tempo/wal\n    local:\n      path: /var/tempo/blocks\n\
+    \    pool:\n      max_workers: 100\n"
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: grafana-data
+  namespace: apollo-observability
+  labels:
+    app.kubernetes.io/name: grafana
+spec:
+  accessModes:
+  - ReadWriteOnce
+  resources:
+    requests:
+      storage: 1Gi
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: loki-data
+  namespace: apollo-observability
+spec:
+  accessModes:
+  - ReadWriteOnce
+  resources:
+    requests:
+      storage: 1Gi
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: tempo-data
+  namespace: apollo-observability
+  labels:
+    app.kubernetes.io/name: tempo
+spec:
+  accessModes:
+  - ReadWriteOnce
+  resources:
+    requests:
+      storage: 1Gi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: grafana
+  namespace: apollo-observability
+  labels:
+    app.kubernetes.io/name: grafana
+    app.kubernetes.io/part-of: apollo-airlines
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: grafana
+  ports:
+  - name: http
+    port: 3000
+    targetPort: 3000
+    protocol: TCP
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: loki
+  namespace: apollo-observability
+  labels:
+    app.kubernetes.io/name: loki
+    app.kubernetes.io/part-of: apollo-airlines
+spec:
+  selector:
+    app.kubernetes.io/name: loki
+  ports:
+  - name: http
+    port: 3100
+    targetPort: http
+  - name: grpc
+    port: 9096
+    targetPort: grpc
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: otel-collector
+  namespace: apollo-observability
+  labels:
+    app.kubernetes.io/name: otel-collector
+    app.kubernetes.io/part-of: apollo-airlines
+spec:
+  selector:
+    app.kubernetes.io/name: otel-collector
+  ports:
+  - name: otlp-grpc
+    port: 4317
+    targetPort: otlp-grpc
+  - name: otlp-http
+    port: 4318
+    targetPort: otlp-http
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: prometheus
+  namespace: apollo-observability
+  labels:
+    app.kubernetes.io/name: prometheus
+    app.kubernetes.io/part-of: apollo-airlines
+spec:
+  type: ClusterIP
+  selector:
+    prometheus: apollo
+  ports:
+  - name: http
+    port: 9090
+    targetPort: web
+    protocol: TCP
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: tempo
+  namespace: apollo-observability
+  labels:
+    app.kubernetes.io/name: tempo
+    app.kubernetes.io/part-of: apollo-airlines
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: tempo
+  ports:
+  - name: http
+    port: 3100
+    targetPort: 3100
+    protocol: TCP
+  - name: otlp-grpc
+    port: 4317
+    targetPort: 4317
+    protocol: TCP
+  - name: jaeger-thrift
+    port: 14268
+    targetPort: 14268
+    protocol: TCP
+---
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: alloy
+  namespace: apollo-observability
+  labels:
+    app.kubernetes.io/name: alloy
+    app.kubernetes.io/part-of: apollo-airlines
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: alloy
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: alloy
+        app.kubernetes.io/part-of: apollo-airlines
+    spec:
+      serviceAccountName: observability-stack
+      containers:
+      - name: alloy
+        image: grafana/alloy:v1.18.0
+        args:
+        - run
+        - /etc/alloy/config.alloy
+        - --server.http.listen-addr=0.0.0.0:12345
+        env:
+        - name: NODE_NAME
+          valueFrom:
+            fieldRef:
+              fieldPath: spec.nodeName
+        ports:
+        - name: http
+          containerPort: 12345
+        readinessProbe:
+          httpGet:
+            path: /-/ready
+            port: http
+          initialDelaySeconds: 5
+          periodSeconds: 5
+        resources:
+          limits:
+            cpu: 200m
+            memory: 256Mi
+          requests:
+            cpu: 50m
+            memory: 64Mi
+        volumeMounts:
+        - name: config
+          mountPath: /etc/alloy
+      volumes:
+      - name: config
+        configMap:
+          name: alloy-config
+---
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: otel-collector
+  namespace: apollo-observability
+  labels:
+    app.kubernetes.io/name: otel-collector
+    app.kubernetes.io/part-of: apollo-airlines
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: otel-collector
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: otel-collector
+        app.kubernetes.io/part-of: apollo-airlines
+    spec:
+      serviceAccountName: observability-stack
+      containers:
+      - name: otel-collector
+        image: otel/opentelemetry-collector-contrib:0.99.0
+        args:
+        - --config=/conf/relay.yaml
+        ports:
+        - name: otlp-grpc
+          containerPort: 4317
+        - name: otlp-http
+          containerPort: 4318
+        - name: health
+          containerPort: 13133
+        resources:
+          limits:
+            cpu: 300m
+            memory: 256Mi
+          requests:
+            cpu: 100m
+            memory: 128Mi
+        livenessProbe:
+          httpGet:
+            path: /
+            port: health
+          initialDelaySeconds: 10
+          periodSeconds: 10
+        readinessProbe:
+          httpGet:
+            path: /
+            port: health
+          initialDelaySeconds: 5
+          periodSeconds: 5
+        volumeMounts:
+        - name: config
+          mountPath: /conf
+      volumes:
+      - name: config
+        configMap:
+          name: otel-collector-config
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: grafana
+  namespace: apollo-observability
+  labels:
+    app.kubernetes.io/name: grafana
+    app.kubernetes.io/part-of: apollo-airlines
+    app.kubernetes.io/component: observability
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: grafana
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: grafana
+        app.kubernetes.io/part-of: apollo-airlines
+    spec:
+      serviceAccountName: observability-stack
+      terminationGracePeriodSeconds: 30
+      containers:
+      - name: grafana
+        image: grafana/grafana:10.4.2
+        imagePullPolicy: IfNotPresent
+        env:
+        - name: GF_SECURITY_ADMIN_USER
+          valueFrom:
+            secretKeyRef:
+              name: grafana-admin
+              key: username
+        - name: GF_SECURITY_ADMIN_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: grafana-admin
+              key: password
+        - name: GF_USERS_ALLOW_SIGN_UP
+          value: 'false'
+        - name: GF_AUTH_ANONYMOUS_ENABLED
+          value: 'true'
+        - name: GF_AUTH_ANONYMOUS_ORG_ROLE
+          value: Viewer
+        - name: GF_INSTALL_PLUGINS
+          value: ''
+        ports:
+        - name: http
+          containerPort: 3000
+          protocol: TCP
+        volumeMounts:
+        - name: data
+          mountPath: /var/lib/grafana
+        - name: datasources
+          mountPath: /etc/grafana/provisioning/datasources
+        - name: dashboards
+          mountPath: /var/lib/grafana/dashboards
+        - name: dashboard-provider
+          mountPath: /etc/grafana/provisioning/dashboards
+        resources:
+          limits:
+            cpu: 300m
+            memory: 256Mi
+          requests:
+            cpu: 100m
+            memory: 128Mi
+        livenessProbe:
+          httpGet:
+            path: /api/health
+            port: 3000
+          initialDelaySeconds: 30
+          periodSeconds: 10
+        readinessProbe:
+          httpGet:
+            path: /api/health
+            port: 3000
+          initialDelaySeconds: 5
+          periodSeconds: 5
+      volumes:
+      - name: data
+        persistentVolumeClaim:
+          claimName: grafana-data
+      - name: datasources
+        configMap:
+          name: grafana-datasources
+      - name: dashboards
+        projected:
+          sources:
+          - configMap:
+              name: grafana-dashboard-overview
+              items:
+              - key: dashboard.json
+                path: overview.json
+          - configMap:
+              name: grafana-dashboard-booking
+              items:
+              - key: dashboard.json
+                path: booking.json
+          - configMap:
+              name: grafana-dashboard-errors
+              items:
+              - key: dashboard.json
+                path: errors.json
+          - configMap:
+              name: grafana-dashboard-saturation
+              items:
+              - key: dashboard.json
+                path: runtime.json
+          - configMap:
+              name: grafana-dashboard-trace-viewer
+              items:
+              - key: dashboard.json
+                path: traces.json
+      - name: dashboard-provider
+        configMap:
+          name: grafana-dashboard-provider
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: loki
+  namespace: apollo-observability
+  labels:
+    app.kubernetes.io/name: loki
+    app.kubernetes.io/part-of: apollo-airlines
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: loki
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: loki
+        app.kubernetes.io/part-of: apollo-airlines
+    spec:
+      serviceAccountName: observability-stack
+      terminationGracePeriodSeconds: 60
+      containers:
+      - name: loki
+        image: grafana/loki:2.9.8
+        imagePullPolicy: IfNotPresent
+        args:
+        - -config.file=/etc/loki/loki.yaml
+        ports:
+        - name: http
+          containerPort: 3100
+          protocol: TCP
+        - name: grpc
+          containerPort: 9096
+          protocol: TCP
+        volumeMounts:
+        - name: config
+          mountPath: /etc/loki
+        - name: data
+          mountPath: /var/loki
+        resources:
+          limits:
+            cpu: 500m
+            memory: 512Mi
+          requests:
+            cpu: 100m
+            memory: 256Mi
+        livenessProbe:
+          httpGet:
+            path: /ready
+            port: 3100
+          initialDelaySeconds: 30
+          periodSeconds: 10
+        readinessProbe:
+          httpGet:
+            path: /ready
+            port: 3100
+          initialDelaySeconds: 5
+          periodSeconds: 5
+      volumes:
+      - name: config
+        configMap:
+          name: loki-config
+      - name: data
+        persistentVolumeClaim:
+          claimName: loki-data
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: tempo
+  namespace: apollo-observability
+  labels:
+    app.kubernetes.io/name: tempo
+    app.kubernetes.io/part-of: apollo-airlines
+    app.kubernetes.io/component: observability
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: tempo
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: tempo
+        app.kubernetes.io/part-of: apollo-airlines
+      annotations:
+        checksum/config: ee0ea59a6a5d3609f6cd64e14fa5c578a01424141bc052381baa0eff06037dba
+    spec:
+      serviceAccountName: observability-stack
+      terminationGracePeriodSeconds: 60
+      containers:
+      - name: tempo
+        image: grafana/tempo:2.3.1
+        imagePullPolicy: IfNotPresent
+        args:
+        - -config.file=/etc/tempo/tempo.yaml
+        ports:
+        - name: http
+          containerPort: 3100
+          protocol: TCP
+        - name: otlp-grpc
+          containerPort: 4317
+          protocol: TCP
+        - name: jaeger-thrift
+          containerPort: 14268
+          protocol: TCP
+        volumeMounts:
+        - name: config
+          mountPath: /etc/tempo
+        - name: data
+          mountPath: /var/tempo
+        resources:
+          limits:
+            cpu: 300m
+            memory: 256Mi
+          requests:
+            cpu: 100m
+            memory: 128Mi
+        livenessProbe:
+          httpGet:
+            path: /ready
+            port: 3100
+          initialDelaySeconds: 30
+          periodSeconds: 10
+        readinessProbe:
+          httpGet:
+            path: /ready
+            port: 3100
+          initialDelaySeconds: 5
+          periodSeconds: 5
+      volumes:
+      - name: config
+        configMap:
+          name: tempo-config
+      - name: data
+        persistentVolumeClaim:
+          claimName: tempo-data
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: grafana
+  namespace: apollo-observability
+  labels:
+    app.kubernetes.io/name: grafana
+    app.kubernetes.io/part-of: apollo-airlines
+spec:
+  parentRefs:
+  - name: apollo-gateway
+    namespace: apollo-airlines-dev-apps
+  hostnames:
+  - grafana.apollo.local
+  rules:
+  - matches:
+    - path:
+        type: PathPrefix
+        value: /
+    backendRefs:
+    - name: grafana
+      port: 3000
+---
+apiVersion: monitoring.coreos.com/v1
+kind: Prometheus
+metadata:
+  name: apollo
+  namespace: apollo-observability
+  labels:
+    app.kubernetes.io/name: prometheus
+    app.kubernetes.io/part-of: apollo-airlines
+spec:
+  image: quay.io/prometheus/prometheus:v3.13.1
+  replicas: 1
+  serviceAccountName: observability-stack
+  serviceMonitorNamespaceSelector:
+    matchLabels:
+      kubernetes.io/metadata.name: apollo-observability
+  serviceMonitorSelector:
+    matchLabels:
+      app.kubernetes.io/part-of: apollo-airlines
+  ruleNamespaceSelector:
+    matchLabels:
+      kubernetes.io/metadata.name: apollo-observability
+  ruleSelector:
+    matchLabels:
+      app.kubernetes.io/part-of: apollo-airlines
+  retention: 7d
+  resources:
+    limits:
+      cpu: 500m
+      memory: 512Mi
+    requests:
+      cpu: 200m
+      memory: 256Mi
+  storage:
+    volumeClaimTemplate:
+      spec:
+        accessModes:
+        - ReadWriteOnce
+        resources:
+          requests:
+            storage: 1Gi
+  securityContext:
+    fsGroup: 65534
+    runAsNonRoot: true
+    runAsUser: 65534
+---
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: apollo-services
+  namespace: apollo-observability
+  labels:
+    app.kubernetes.io/name: prometheus
+    app.kubernetes.io/part-of: apollo-airlines
+spec:
+  groups:
+  - name: apollo.availability
+    interval: 30s
+    rules:
+    - alert: ApolloServiceDown
+      expr: up{namespace="apollo-airlines-dev-apps"} == 0
+      for: 2m
+      labels:
+        severity: critical
+        team: platform
+      annotations:
+        summary: Apollo backend metrics target is down
+    - alert: ApolloServiceFlapping
+      expr: changes(up{namespace="apollo-airlines-dev-apps"}[10m]) > 6
+      labels:
+        severity: warning
+        team: platform
+      annotations:
+        summary: Apollo backend metrics target is flapping
+  - name: apollo.http
+    interval: 30s
+    rules:
+    - alert: ApolloErrorRateHigh
+      expr: sum by (service) (rate(http_requests_total{status=~"5.."}[5m])) / clamp_min(sum
+        by (service) (rate(http_requests_total[5m])), 0.001) > 0.05
+      for: 5m
+      labels:
+        severity: critical
+        team: platform
+      annotations:
+        summary: Apollo backend 5xx rate exceeds 5 percent
+    - alert: ApolloBookingLatencyP95High
+      expr: histogram_quantile(0.95, sum by (le) (rate(http_request_duration_ms_bucket{service="booking"}[5m])))
+        > 500
+      for: 5m
+      labels:
+        severity: warning
+        team: platform
+        service: booking
+      annotations:
+        summary: Booking p95 latency exceeds 500 milliseconds
+---
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: booking
+  namespace: apollo-observability
+  labels:
+    app.kubernetes.io/name: booking
+    app.kubernetes.io/part-of: apollo-airlines
+    release: apollo11
+spec:
+  selector:
+    matchLabels:
+      app: booking
+  namespaceSelector:
+    any: true
+  endpoints:
+  - port: http
+    path: /metrics
+    scheme: http
+    interval: 30s
+    scrapeTimeout: 10s
+    honorLabels: true
+  jobLabel: app
+---
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: flight
+  namespace: apollo-observability
+  labels:
+    app.kubernetes.io/name: flight
+    app.kubernetes.io/part-of: apollo-airlines
+    release: apollo11
+spec:
+  selector:
+    matchLabels:
+      app: flight
+  namespaceSelector:
+    any: true
+  endpoints:
+  - port: http
+    path: /metrics
+    scheme: http
+    interval: 30s
+    scrapeTimeout: 10s
+    honorLabels: true
+  jobLabel: app
+---
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: identity
+  namespace: apollo-observability
+  labels:
+    app.kubernetes.io/name: identity
+    app.kubernetes.io/part-of: apollo-airlines
+    release: apollo11
+spec:
+  selector:
+    matchLabels:
+      app: identity
+  namespaceSelector:
+    any: true
+  endpoints:
+  - port: http
+    path: /metrics
+    scheme: http
+    interval: 30s
+    scrapeTimeout: 10s
+    honorLabels: true
+  jobLabel: app
+---
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: notification
+  namespace: apollo-observability
+  labels:
+    app.kubernetes.io/name: notification
+    app.kubernetes.io/part-of: apollo-airlines
+    release: apollo11
+spec:
+  selector:
+    matchLabels:
+      app: notification
+  namespaceSelector:
+    any: true
+  endpoints:
+  - port: http
+    path: /metrics
+    scheme: http
+    interval: 30s
+    scrapeTimeout: 10s
+    honorLabels: true
+  jobLabel: app
+---
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: search
+  namespace: apollo-observability
+  labels:
+    app.kubernetes.io/name: search
+    app.kubernetes.io/part-of: apollo-airlines
+    release: apollo11
+spec:
+  selector:
+    matchLabels:
+      app: search
+  namespaceSelector:
+    any: true
+  endpoints:
+  - port: http
+    path: /metrics
+    scheme: http
+    interval: 30s
+    scrapeTimeout: 10s
+    honorLabels: true
+  jobLabel: app

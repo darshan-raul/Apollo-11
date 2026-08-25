@@ -7,7 +7,9 @@ apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:
   name: apollo11-staging
-  namespace: apollo-airlines
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/compare-options: ServerSideDiff=true
   labels:
     app.kubernetes.io/part-of: apollo-airlines
     app.kubernetes.io/component: gitops
@@ -18,21 +20,41 @@ spec:
   project: apollo-airlines
 
   source:
-    repoURL: https://github.com/darshan/Apollo11
+    repoURL: https://github.com/darshan-raul/Apollo11.git
     targetRevision: HEAD
-    path: stages/stage5/helm/apollo11
+    path: stages/stage7/helm/apollo11
     helm:
       valueFiles:
         - values-staging.yaml
       parameters:
+        - name: image.repository
+          value: ghcr.io/darshan-raul/apollo11
         - name: image.tag
           value: latest
+        - name: namespaces.apps
+          value: apollo-airlines-staging-apps
+        - name: namespaces.ui
+          value: apollo-airlines-staging-ui
         - name: pdb.enabled
+          value: "false"
+        - name: gateway.createClass
+          value: "false"
+        - name: gateway.envoy.bundleInstall
+          value: "false"
+        - name: autoscaling.metricsServer.bundleInstall
+          value: "false"
+        - name: vpa.bundleInstall
+          value: "false"
+        - name: priorityClasses.enabled
+          value: "false"
+        - name: metallb.enabled
+          value: "false"
+        - name: observability.enabled
           value: "false"
 
   destination:
     server: https://kubernetes.default.svc
-    namespace: apollo-airlines-apps
+    namespace: apollo-airlines-staging-apps
 
   syncPolicy:
     automated:

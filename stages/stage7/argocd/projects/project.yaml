@@ -5,9 +5,9 @@
 #
 # Rules:
 #   - Source repos:    only the Apollo11 GitHub repo
-#   - Destinations:    only the in-cluster, and only into 2 namespaces
+#   - Destinations:    only the six tenant namespaces plus observability
 #   - Cluster-scoped:  DENIED (no CRDs, no cluster roles, no nodes)
-#   - Namespaced:      everything in the 2 namespaces is allowed
+#   - Namespaced:      everything in those seven namespaces is allowed
 #   - Signatures:      keys can be added later (ApplicationSet / sigstore)
 #
 # Each Application CR references this project via:
@@ -19,34 +19,45 @@ apiVersion: argoproj.io/v1alpha1
 kind: AppProject
 metadata:
   name: apollo-airlines
-  namespace: apollo-airlines
+  namespace: argocd
   labels:
     app.kubernetes.io/part-of: apollo-airlines
     app.kubernetes.io/component: gitops
 spec:
   description: |
     Apollo Airlines workload delivery.
-    Three Applications (dev, staging, prod) deploy the Stage 5 Helm chart
-    into apollo-airlines-apps and apollo-airlines-ui.
+    Three isolated Applications deploy the Stage 7 Helm chart into dedicated
+    dev, staging, and prod namespace pairs. A fourth Application owns the
+    shared observability platform.
 
   # Source: this repo. For a kind/dev setup the repoURL is set on each
   # Application; for a real prod cluster, change to:
-  #   repoURL: https://github.com/darshan/Apollo11
+  #   repoURL: https://github.com/darshan-raul/Apollo11.git
   #   targetRevision: HEAD
   # and add a `sourceRepos` entry here. We use a wildcard for the demo
   # so the same AppProject works for both local-path sources and
   # git/HTTP sources.
   sourceRepos:
-    - '*'
+    - https://github.com/darshan-raul/Apollo11.git
 
-  # Destination restrictions: only the in-cluster, only 2 namespaces.
+  # Destination restrictions: only the in-cluster tenant and observability namespaces.
   destinations:
-    - namespace: apollo-airlines-apps
+    - namespace: apollo-airlines-dev-apps
       server: https://kubernetes.default.svc
-    - namespace: apollo-airlines-ui
+    - namespace: apollo-airlines-dev-ui
+      server: https://kubernetes.default.svc
+    - namespace: apollo-airlines-staging-apps
+      server: https://kubernetes.default.svc
+    - namespace: apollo-airlines-staging-ui
+      server: https://kubernetes.default.svc
+    - namespace: apollo-airlines-prod-apps
+      server: https://kubernetes.default.svc
+    - namespace: apollo-airlines-prod-ui
+      server: https://kubernetes.default.svc
+    - namespace: apollo-observability
       server: https://kubernetes.default.svc
 
-  # Allow all namespaced kinds in those two namespaces.
+  # Allow all namespaced kinds in those namespaces.
   # If you want to lock this down further (e.g. deny Pods directly so all
   # workloads must come via Deployments/StatefulSets), replace the wildcard
   # with an explicit list. For teaching purposes, the wildcard is fine.

@@ -1,0 +1,23 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+# Plain-manifest base for Kustomize overlays (dev/staging/prod).
+#
+# This is the complete application manifest set: namespaces, configuration,
+# ServiceAccounts, 4 StatefulSets, 6 Deployments, Services, seed Jobs, Gateway
+# API resources, and MetalLB configuration. Controller install bundles are
+# applied first by scripts/apply.sh because their CRDs must exist before these
+# custom resources can be submitted.
+#
+# generated.yaml is a committed plain-manifest snapshot of the verified chart;
+# Helm is not used by the Kustomize runtime path.
+
+labels:
+  - includeSelectors: false
+    includeTemplates: true
+    pairs:
+      app.kubernetes.io/part-of: apollo-airlines
+      app.kubernetes.io/managed-by: kustomize
+
+resources:
+  - generated.yaml

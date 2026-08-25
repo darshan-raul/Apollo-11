@@ -5,6 +5,18 @@ description: "Add horizontal autoscaling (HPA), vertical pod autoscaling recomme
 
 # Stage 7: Orbital Maneuvering
 
+**Status:** Complete and fresh-cluster verified on 2026-08-25.
+
+| Delivery path | Result |
+|---|---|
+| Helm/dev | **210/210** checks passed, followed by a clean purge |
+| Kustomize/dev | **199/199** checks passed, followed by a clean purge |
+| Helm/staging | **211/211** checks passed with live VPA, followed by a clean purge |
+
+All purges left zero Apollo namespaces, PVCs, Stage 7 controllers, or related
+CRDs. Production Helm/Kustomize renders also validate locally. The staging
+lifecycle verifies the live VPA controllers and recommendation-only resource.
+
 **Goal:** make Apollo Airlines **elastic and cache-friendly**. The search
 service — the highest-traffic read path in the system — gains horizontal
 auto-scaling on CPU, recommendation-mode vertical auto-scaling, a Redis
@@ -17,9 +29,9 @@ is a service that can ride out traffic spikes without manual intervention.
 | **New concept** | HorizontalPodAutoscaler (HPA), VerticalPodAutoscaler (VPA) in `Off` mode, cache-aside pattern, PriorityClass, node affinity, tolerations, `X-Cache` HTTP header |
 | **Workloads changed** | 1 (search) — Redis cache + new metrics + priorityClassName + toleration + nodeAffinity. Booking + notification: `priorityClassName` only. |
 | **Workloads unchanged** | identity, flight, frontend, all StatefulSets, seed Jobs, NetworkPolicies, ServiceAccounts, ConfigMap, Secret, observability stack |
-| **New cluster resources** | 2 PriorityClass, 1 HPA, 1 VPA, 1 VPA bundle (3 pods in vpa-system), metrics-server (1 pod in kube-system) |
-| **Code changes** | search service: `+github.com/redis/go-redis/v9` import, `initRedis()` with bounded timeout, cache GET/SET in `/api/search`, `cache_hits_total` / `cache_misses_total` counters, `X-Cache: HIT|MISS` header, OTEL child spans for `cache.get` / `cache.set`, redisClient.Close() in shutdown |
-| **Verify target** | **~120 checks** (95 carryover from Stage 6 + 25 new: metrics-server, VPA components, HPA + VPA config, PriorityClass, priorityClassName on booking/notification, search tolerations + nodeAffinity, Redis cache HIT/MISS, X-Cache header, cache_hits_total + cache_misses_total counters) |
+| **New cluster resources** | 2 PriorityClasses, 1 HPA, metrics-server, and—outside dev—1 recommendation-only VPA with recommender/updater controllers |
+| **Code changes** | search service: Redis client with bounded startup and lazy recovery, cache GET/SET, cache metrics, `X-Cache: HIT/MISS`, OTEL child spans, and clean shutdown |
+| **Verification** | Helm/dev **210/210**; Kustomize/dev **199/199**; Helm/staging **211/211** |
 
 ---
 
@@ -48,7 +60,10 @@ GET /api/search?origin=BOM&destination=SIN&date=...
 
 **Key design choices:**
 
-- **Graceful degradation.** `initRedis()` uses `context.WithTimeout(10s)`. If Redis is unreachable at startup, the client is set to `nil` and `/api/search` proceeds without caching. A Redis outage during runtime is also a no-op — the `GET` and `SET` calls have 1s timeouts and errors are logged but never fail the request. The `notification` service's `for { Ping }` infinite-retry loop is the **anti-pattern** the AGENTS.md spec calls out; search's bounded-timeout approach is the correct one.
+- **Graceful degradation and recovery.** Redis connection attempts are bounded
+  (10s at startup, 1s from probes/requests). Search serves uncached responses
+  when Redis is unavailable and lazily reconnects after Redis recovers. Cache
+  GET/SET failures are logged but never fail the user request.
 - **OTEL child spans.** The cache lookup is wrapped in a `cache.get` span with a `cache.hit` attribute, so a trace can show the cache effect. A `cache.set` span covers the write. This is a Stage 6 OTEL pattern extended.
 - **New Prometheus counters.** `cache_hits_total{service="search"}` and `cache_misses_total{service="search"}` are registered with the same registry as `http_requests_total` (Stage 6) — Grafana can plot hit ratio and a Prometheus alert can fire on low cache effectiveness.
 - **Cache key shape.** `search:{origin}:{destination}:{date}` follows the AGENTS.md spec. With 6 airports × 5 dates × 6 airports = ~180 keys, the keyspace is bounded and small.
@@ -141,12 +156,10 @@ usage, but does NOT mutate the Deployment. The operator workflow:
 4. Operator reads the recommendation, updates the chart's
    `tiers.default.cpu/memory` (or per-service tier), `helm upgrade`
 
-VPA requires a 3-component deployment (recommender, updater,
-admission-controller) in the `vpa-system` namespace. The chart bundles
-this (1.6KB aggregated manifest from kubernetes/autoscaler v1.7.0) and
-`apply.sh` installs it during phase 4. The bundle is opt-in via
-`vpa.bundleInstall` — dev values turn it off to avoid burning 3 pods
-on a single-node kind cluster.
+Stage 7 installs the VPA recommender and updater in `kube-system`. It omits the
+admission webhook because `updateMode: Off` never mutates pod requests; adding
+TLS admission infrastructure would consume resources without participating in
+recommendation generation. Dev disables VPA entirely.
 
 ### 4. PriorityClass
 
@@ -216,7 +229,7 @@ The 4 Go services and 1 Python service were unchanged except search:
 
 - `stages/stage7/code/search/main.go`:
   - + `import "github.com/redis/go-redis/v9/v9"`
-  - + `initRedis()` with `context.WithTimeout(10s)` + `PingContext`. On failure, logs warning and sets `redisClient = nil` (degraded mode).
+  - + bounded Redis startup plus mutex-protected lazy reconnection after a startup race or outage.
   - + `/healthz/ready` returns 200 with `{status, cache}` body; cache state is `ok` / `disabled` / `unreachable`.
   - + `/api/search` cache GET/SET wrap; `X-Cache: HIT|MISS` header; OTEL `cache.get` / `cache.set` child spans; `cache_hits_total` / `cache_misses_total` Prometheus counters.
   - + `redisClient.Close()` in shutdown.
@@ -230,7 +243,7 @@ The 4 Go services and 1 Python service were unchanged except search:
 | `templates/autoscaling/search-hpa.yaml` | NEW | HPA behind `if .Values.autoscaling.search.enabled` |
 | `templates/autoscaling/search-vpa.yaml` | NEW | VPA behind `if .Values.vpa.search.enabled` |
 | `templates/autoscaling/metrics-server-install.yaml` | NEW | Renders the bundled metrics-server manifest |
-| `templates/autoscaling/vpa-install.yaml` | NEW | Renders the bundled VPA 3-component manifest |
+| `templates/autoscaling/vpa-install.yaml` | NEW | Renders the recommender/updater bundle outside dev |
 | `templates/apps/search.yaml` | Modify | + `priorityClassName`, `tolerations`, `nodeAffinity`, `env REDIS_URL` |
 | `templates/apps/booking.yaml` | Modify | + `priorityClassName: apollo-airlines-app-critical` |
 | `templates/apps/notification.yaml` | Modify | + `priorityClassName: apollo-airlines-app-low` |
@@ -242,14 +255,14 @@ The 4 Go services and 1 Python service were unchanged except search:
 
 | File | Size | Source |
 |---|---|---|
-| `bundles/metrics-server-install.yaml` | 202 lines | upstream `kubernetes-sigs/metrics-server` v0.7.x `components.yaml` |
-| `bundles/vpa-install.yaml` | 1663 lines | aggregated from `kubernetes/autoscaler` v1.7.0 `vertical-pod-autoscaler/deploy/` (CRD + RBAC + 3 Deployments + Service) |
+| `bundles/metrics-server-install.yaml` | 205 lines | upstream metrics-server v0.8.1 plus kind's required `--kubelet-insecure-tls` flag |
+| `bundles/vpa-install.yaml` | curated from upstream v1.7.0 | CRDs + RBAC + recommender/updater; mutation webhook intentionally omitted for `Off` mode |
 
 ### 4. Scripts
 
-- `scripts/apply.sh`: 13 phases (was 10). New phases 6/7/8 install metrics-server + VPA + wait for HPA TARGETS.
-- `scripts/verify.sh`: ~25 new checks. Total ~120. New `--skip-stage7` flag.
-- `scripts/teardown.sh`: 4 phases (was 3). Phase 3 removes VPA + metrics-server in `--full` / `--purge` modes.
+- `scripts/apply.sh`: mode-aware Helm/Kustomize installer; pre-installs metrics-server and, outside dev, VPA before submitting their dependent resources.
+- `scripts/verify.sh`: Stage 6 contract plus Stage 7 HPA, VPA, priority, scheduling, MISS→HIT, TTL, and cache-metric checks.
+- `scripts/teardown.sh`: removes Stage 7 controllers symmetrically; `--purge` also removes namespaces, PVCs, access-stack resources, and related CRDs.
 
 ---
 
@@ -259,7 +272,7 @@ The 4 Go services and 1 Python service were unchanged except search:
 cd stages/stage7
 bash scripts/build-images.sh        # builds search with redis client
 bash scripts/apply.sh --env dev     # installs everything (dev config: VPA off, HPA min=1)
-bash scripts/verify.sh              # ~120 checks
+bash scripts/verify.sh --mode helm --env dev
 bash scripts/teardown.sh --purge    # cleans up
 ```
 
@@ -292,6 +305,7 @@ kubectl get hpa -n apollo-airlines-apps
 # search-hpa  Deployment/search  0%/70%   2         10        2          3m
 
 kubectl describe vpa search-vpa -n apollo-airlines-apps
+# VPA is disabled in dev; use staging/prod to create this resource.
 # Shows: Recommendation block with Container Recommendations
 #         Container Name:  search
 #         Target:          {cpu: ..., memory: ...}
@@ -309,12 +323,10 @@ kubectl describe vpa search-vpa -n apollo-airlines-apps
    recommendations only — which is the standard k8s reference design.
    See <https://kubernetes.io/docs/tasks/run-application/horizontal-pod-autoscale/>.
 
-2. **`for { Ping }` infinite retry loops are an anti-pattern** (AGENTS.md
-   calls this out from the launchpad `initDB()` mistake). The new
-   `initRedis()` uses `context.WithTimeout(10s)` + `PingContext`. On
-   failure, `redisClient` is set to `nil` and `/api/search` runs in
-   degraded mode (no cache, but functional). The `notification` service
-   still has the old loop — Stage 8's RBAC + cleanup pass should fix it.
+2. **Bound retries and recover after startup races.** Both notification and
+   search use bounded Redis startup checks. Search additionally retries lazily
+   from probes/requests, which matters because Helm may start search before
+   Redis is Ready. The first verification run caught this exact race.
 
 3. **Cache miss must degrade gracefully.** A Redis blip must not break
    search. The `cache.get` and `cache.set` calls have 1s timeouts and
@@ -332,9 +344,9 @@ kubectl describe vpa search-vpa -n apollo-airlines-apps
    install, `kubectl top nodes` returns non-empty data and the HPA
    TARGETS column populates within 30s.
 
-6. **VPA 3-component bundle is opt-in.** On a single-node kind cluster
-   it's 3 pods burning resources for nothing — `values-dev.yaml` sets
-   `vpa.search.enabled=false` and `vpa.bundleInstall=false`. In prod
+6. **VPA is opt-in.** On a local kind cluster the recommender/updater consume
+   resources without much history to analyze — `values-dev.yaml` sets
+   `vpa.search.enabled=false`, and `apply.sh` skips its bundle. In prod
    (`values-prod.yaml`) it's on.
 
 7. **Cache TTL: 5 minutes.** Matches the AGENTS.md spec. Long enough
@@ -344,7 +356,8 @@ kubectl describe vpa search-vpa -n apollo-airlines-apps
    raising the TTL or the cache size.
 
 8. **Teardown order matters (VPA webhooks).** The teardown script
-   handles VPA + metrics-server in `--full` / `--purge` modes with the
+   removes workload resources before VPA and metrics-server, with `--purge`
+   handling cluster-scoped cleanup using the
    same force-delete + finalizer-patch pattern that stage 5/6 used for
    Envoy + MetalLB. Without this, deletion hangs on VPA's
    ValidatingWebhookConfiguration.

@@ -1,0 +1,112 @@
+---
+# Cluster platform resources are owned once, outside the three tenant
+# Applications. This keeps AppProject cluster-scoped permissions empty and
+# prevents dev/staging/prod from fighting over shared objects.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: apollo-airlines-dev-apps
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: apollo-airlines-dev-ui
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: apollo-airlines-staging-apps
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: apollo-airlines-staging-ui
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: apollo-airlines-prod-apps
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: apollo-airlines-prod-ui
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: apollo-observability
+---
+# Stage 7 scheduling policy is cluster-scoped and shared by all tenants.
+apiVersion: scheduling.k8s.io/v1
+kind: PriorityClass
+metadata:
+  name: apollo-airlines-app-critical
+value: 1000000
+globalDefault: false
+description: Apollo Airlines critical request-path workloads.
+---
+apiVersion: scheduling.k8s.io/v1
+kind: PriorityClass
+metadata:
+  name: apollo-airlines-app-low
+value: -100000
+globalDefault: false
+description: Apollo Airlines deferrable background workloads.
+---
+# Cluster-scoped discovery permissions are platform-owned. The shared
+# observability Application owns only resources inside apollo-observability.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: apollo-observability
+rules:
+  - apiGroups: [""]
+    resources: ["nodes", "nodes/proxy", "services", "endpoints", "pods", "pods/log", "configmaps"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["discovery.k8s.io"]
+    resources: ["endpointslices"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["monitoring.coreos.com"]
+    resources: ["servicemonitors", "podmonitors", "prometheusrules"]
+    verbs: ["get", "list", "watch"]
+  - nonResourceURLs: ["/metrics"]
+    verbs: ["get"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: apollo-observability
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: apollo-observability
+subjects:
+  - kind: ServiceAccount
+    name: observability-stack
+    namespace: apollo-observability
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: GatewayClass
+metadata:
+  name: eg
+spec:
+  controllerName: gateway.envoyproxy.io/gatewayclass-controller
+---
+apiVersion: metallb.io/v1beta1
+kind: IPAddressPool
+metadata:
+  name: apollo-pool
+  namespace: metallb-system
+spec:
+  addresses:
+    - 172.18.0.50-172.18.0.100
+---
+apiVersion: metallb.io/v1beta1
+kind: L2Advertisement
+metadata:
+  name: apollo-l2
+  namespace: metallb-system
+spec:
+  ipAddressPools:
+    - apollo-pool

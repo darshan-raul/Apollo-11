@@ -599,15 +599,25 @@ Dev and staging auto-converge on git push; prod is human-gated and pins the imag
 
 **Location:** `stages/stage7/`
 
-**k8s manifest changes:**
-- HPA for search service (CPU-based, min 2 max 10 replicas)
-- VPA for search service
-- Redis Deployment becomes StatefulSet with PVC
+**Status:** ✅ Complete and locally verified (2026-08-25). Helm/dev passed
+**210/210**, Kustomize/dev passed **199/199**, and Helm/staging passed
+**211/211** with live VPA. Every path completed a full purge with no Apollo
+namespace, PVC, Stage 7 controller, or related-CRD residue. The Argo CD tenant
+boundary and 59/60/62-resource environment renders validate statically.
+
+**k8s and packaging changes:**
+- HPA for search: default 2–10 replicas at 70% CPU; dev 1–3; prod 3–20 at 60%
+- VPA for search in `Off` recommendation mode; disabled in dev
+- metrics-server v0.8.1 bundle with kind TLS compatibility
+- 2 PriorityClasses; booking/search are critical, notification is low priority
+- Search toleration and preferred node affinity
+- Both Helm and committed Kustomize delivery paths carry the Stage 7 resources
 
 **Code changes vs stage6:**
-- Search Service: Redis caching (key: `search:{origin}:{destination}:{date}`, TTL 5min)
+- Search Service: Redis caching (key: `search:{origin}:{destination}:{date}`, TTL 5min), bounded startup, graceful degradation, and lazy reconnection
 - `X-Cache: HIT/MISS` header on search responses
-- All Go services: graceful shutdown fully implemented
+- `cache_hits_total` / `cache_misses_total` metrics and OTEL cache child spans
+- Stage 6 booking authentication, trace propagation, real metrics, and bounded notification startup are preserved verbatim
 
 ---
 
@@ -782,7 +792,8 @@ Needed but missing: kind, kustomize, k6, trivy, opa, kyverno, prometheus, grafan
 | Stage 4 | ✅ Complete | Probes (startup/live/ready) on 6 apps, Guaranteed QoS on all 10 pods, PDBs for booking + frontend, graceful SIGTERM on all backends, frontend build-time URLs, 130/130 verify |
 | Stage 5 | ✅ Complete locally | Helm 153/153, Kustomize 142/142, Argo CD 74/74; all clean lifecycle tests passed. Hosted Actions/GHCR publication awaits the next push/tag. |
 | Stage 6 | ✅ Complete locally | Helm 190/190 and Kustomize dev 180/180; full metrics/traces/logs behavior and clean purges verified. Argo CD's 4-Application layout validates statically; live reconciliation awaits the next explicitly authorized Git revision. |
-| Stage 7–11 | ⚠️ Pending | Feature prototypes or legacy code exist, but none is a trusted implementation boundary yet. |
+| Stage 7 | ✅ Complete locally | Helm/dev 210/210, Kustomize/dev 199/199, and Helm/staging 211/211 with live VPA; clean purges passed. Argo boundaries/renders validate statically; live Argo reconciliation awaits a Git revision containing this work. |
+| Stage 8–11 | ⚠️ Pending | Legacy scaffolding exists, but none is a trusted Apollo Airlines implementation boundary yet. |
 
 ---
 

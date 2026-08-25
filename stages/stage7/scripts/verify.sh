@@ -1,46 +1,20 @@
 #!/bin/bash
-# Verify Stage 7: Orbital Maneuvering — ~120 checks across:
-#   1. (Stage 5/6 carryover) ~95 checks: namespaces, SAs, ConfigMap, Secret,
-#      4 StatefulSets, 4 headless SVCs, 5 app Deployments + frontend,
-#      probes, resources, PDBs, seed jobs, Gateway, HTTPRoutes,
-#      ReferenceGrant, MetalLB IP pool, observability stack
-#   2. (Stage 7) ~25 new: metrics-server, VPA components, HPA, VPA,
-#      PriorityClass, PriorityClass on booking/notification, search
-#      tolerations + nodeAffinity, Redis cache HIT/MISS, X-Cache header,
-#      cache_hits_total + cache_misses_total counters
+# Verify Stage 7: the trusted Stage 6 contract plus autoscaling, scheduling,
+# and Redis-backed search caching.
+# ConfigMap, Secret,
+# 3 Postgres StatefulSets + 1 Redis StatefulSet, 6 app Deployments +
+# frontend Deployment, 2 PDBs, 3 seed Jobs, GatewayClass, Gateway, 6
+# HTTPRoutes, ReferenceGrant, MetalLB IPAddressPool, and the chart's
+# own metadata.
+#
+# Mode-aware: works for both helm and kustomize installs. Some checks
+# (e.g. envoy-gateway-system namespace) only apply to --mode helm.
 #
 # Usage:
-#   ./scripts/verify.sh                       # full suite
-#   ./scripts/verify.sh --skip-observability  # only Stage 5+7 checks
-#   ./scripts/verify.sh --skip-workloads      # only observability checks
-#   ./scripts/verify.sh --skip-stage7         # only Stage 5+6 checks
-
+#   ./scripts/verify.sh                  # auto-detect mode
+#   ./scripts/verify.sh --mode helm      # explicit
+#   ./scripts/verify.sh --mode kustomize --env prod
 set -euo pipefail
-
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-STAGE_DIR="$(dirname "$SCRIPT_DIR")"
-CHART_DIR="$STAGE_DIR/helm/apollo11"
-
-SKIP_OBSERVABILITY=false
-SKIP_WORKLOADS=false
-SKIP_STAGE7=false
-
-usage() {
-    cat <<EOF
-Usage: $0 [--skip-observability] [--skip-workloads] [--skip-stage7]
-EOF
-    exit 1
-}
-
-while [[ $# -gt 0 ]]; do
-    case $1 in
-        --skip-observability) SKIP_OBSERVABILITY=true; shift ;;
-        --skip-workloads)     SKIP_WORKLOADS=true; shift ;;
-        --skip-stage7)        SKIP_STAGE7=true; shift ;;
-        --help)                usage ;;
-        *) echo "Unknown option: $1"; usage ;;
-    esac
-done
 
 GREEN='\033[0;32m'; RED='\033[0;31m'; CYAN='\033[0;36m'; NC='\033[0m'
 PASS=0; FAIL=0
@@ -48,450 +22,673 @@ pass() { echo -e "${GREEN}[PASS]${NC} $1"; PASS=$((PASS+1)); }
 fail() { echo -e "${RED}[FAIL]${NC} $1"; FAIL=$((FAIL+1)); }
 step() { echo -e "${CYAN}▶ $1${NC}"; }
 
-# =============================================================================
-# Stage 5 carryover
-# =============================================================================
-if [[ "$SKIP_WORKLOADS" != "true" ]]; then
-    step "Namespaces (2 expected: apollo-airlines-apps, apollo-airlines-ui)"
-    for ns in apollo-airlines-apps apollo-airlines-ui; do
-        if kubectl get ns "$ns" >/dev/null 2>&1; then
-            pass "ns/$ns"
-        else
-            fail "ns/$ns missing"
-        fi
+MODE="auto"
+ENV="dev"
+GATEWAY_EXPECTED=true
+OBSERVABILITY_EXPECTED=true
+STAGE7_EXPECTED=true
+
+usage() {
+    cat <<EOF
+Usage: $0 [--mode MODE] [--env ENV] [--skip-observability] [--skip-stage7]
+
+Options:
+  --mode MODE   helm | kustomize | auto (default)
+  --env ENV     env for kustomize mode (default: dev)
+  --skip-observability  Verify only the Stage 5-compatible baseline
+  --skip-stage7         Skip autoscaling, scheduling, and cache checks
+EOF
+    exit 1
+}
+
+while [[ $# -gt 0 ]]; do
+    case $1 in
+        --mode) MODE="$2"; shift 2 ;;
+        --env)  ENV="$2"; shift 2 ;;
+        --skip-observability) OBSERVABILITY_EXPECTED=false; shift ;;
+        --skip-stage7) STAGE7_EXPECTED=false; shift ;;
+        --help) usage ;;
+        *) echo "Unknown option: $1"; usage ;;
+    esac
+done
+
+case "$MODE" in
+    auto|helm|kustomize) ;;
+    *) echo -e "${RED}Invalid mode '$MODE' (expected auto, helm, or kustomize).${NC}"; exit 1 ;;
+esac
+case "$ENV" in
+    dev|staging|prod) ;;
+    *) echo -e "${RED}Invalid environment '$ENV' (expected dev, staging, or prod).${NC}"; exit 1 ;;
+esac
+
+# Auto-detect mode
+if [[ "$MODE" == "auto" ]]; then
+    if helm list -n apollo-airlines-apps 2>/dev/null | grep -q apollo11; then
+        MODE="helm"
+    elif kubectl get deployment -n apollo-airlines-apps identity >/dev/null 2>&1; then
+        MODE="kustomize"
+    else
+        echo -e "${RED}Could not auto-detect install mode. Run with --mode helm or --mode kustomize.${NC}"
+        exit 1
+    fi
+    echo "Auto-detected mode: $MODE"
+fi
+
+# ---------------------------------------------------------------------------
+# Stage 6 observability
+# ---------------------------------------------------------------------------
+if [[ "$OBSERVABILITY_EXPECTED" == "true" ]]; then
+    step "Stage 6 namespaces, operator, and custom resources"
+    kubectl get ns apollo-observability >/dev/null 2>&1 && pass "ns/apollo-observability" || fail "ns/apollo-observability missing"
+    kubectl rollout status deployment/prometheus-operator -n apollo-observability --timeout=30s >/dev/null 2>&1 && pass "prometheus-operator ready" || fail "prometheus-operator not ready"
+    for crd in prometheuses.monitoring.coreos.com servicemonitors.monitoring.coreos.com prometheusrules.monitoring.coreos.com; do
+        kubectl get crd "$crd" >/dev/null 2>&1 && pass "crd/$crd" || fail "crd/$crd missing"
     done
+    kubectl get prometheus apollo -n apollo-observability >/dev/null 2>&1 && pass "prometheus/apollo" || fail "prometheus/apollo missing"
+    kubectl rollout status statefulset/prometheus-apollo -n apollo-observability --timeout=30s >/dev/null 2>&1 && pass "prometheus-apollo ready" || fail "prometheus-apollo not ready"
+    sm_count=$(kubectl get servicemonitor -n apollo-observability --no-headers 2>/dev/null | wc -l | tr -d ' ')
+    [[ "$sm_count" == "5" ]] && pass "5 ServiceMonitors" || fail "expected 5 ServiceMonitors, found $sm_count"
+    kubectl get prometheusrule apollo-services -n apollo-observability >/dev/null 2>&1 && pass "prometheusrule/apollo-services" || fail "prometheusrule/apollo-services missing"
 
-    step "ServiceAccounts (13 expected)"
-    EXPECTED_SAS=(
-      "apollo-airlines-apps:identity"     "apollo-airlines-apps:flight"
-      "apollo-airlines-apps:booking"      "apollo-airlines-apps:search"
-      "apollo-airlines-apps:notification" "apollo-airlines-ui:frontend"
-      "apollo-airlines-apps:identity-db"  "apollo-airlines-apps:flight-db"
-      "apollo-airlines-apps:booking-db"   "apollo-airlines-apps:redis"
-      "apollo-airlines-apps:init-identity-db"
-      "apollo-airlines-apps:init-flight-db"
-      "apollo-airlines-apps:init-booking-db"
-    )
-    for sa in "${EXPECTED_SAS[@]}"; do
-        ns="${sa%%:*}"; name="${sa##*:}"
-        if kubectl get sa "$name" -n "$ns" >/dev/null 2>&1; then
-            pass "sa $ns/$name"
-        else
-            fail "sa $ns/$name missing"
-        fi
-    done
-
-    step "ConfigMap + Secret"
-    kubectl get cm apollo-airlines-config -n apollo-airlines-apps >/dev/null 2>&1 && pass "cm/apollo-airlines-config (apps)" || fail "cm/apollo-airlines-config missing (apps)"
-    kubectl get cm apollo-airlines-config -n apollo-airlines-ui >/dev/null 2>&1 && pass "cm/apollo-airlines-config (ui)" || fail "cm/apollo-airlines-config missing (ui)"
-    kubectl get secret apollo-airlines-secrets -n apollo-airlines-apps >/dev/null 2>&1 && pass "secret/apollo-airlines-secrets" || fail "secret/apollo-airlines-secrets missing"
-
-    step "StatefulSets (4 expected, all 1/1 Ready)"
-    for sts in identity-db flight-db booking-db redis; do
-        ready=$(kubectl get statefulset "$sts" -n apollo-airlines-apps -o jsonpath='{.status.readyReplicas}' 2>/dev/null || echo 0)
-        if [[ "$ready" -ge 1 ]]; then pass "statefulset/$sts ready=$ready"; else fail "statefulset/$sts not ready"; fi
-    done
-
-    step "App Deployments (5 expected, all ≥1 Ready)"
+    step "Stage 6 telemetry endpoints and collector DNS"
+    expected_otel="otel-collector.apollo-observability.svc.cluster.local:4317"
     for dep in identity flight booking search notification; do
-        ready=$(kubectl get deployment "$dep" -n apollo-airlines-apps -o jsonpath='{.status.readyReplicas}' 2>/dev/null || echo 0)
-        if [[ "$ready" -ge 1 ]]; then pass "deployment/$dep ready=$ready"; else fail "deployment/$dep not ready"; fi
-    done
-
-    ready=$(kubectl get deployment frontend -n apollo-airlines-ui -o jsonpath='{.status.readyReplicas}' 2>/dev/null || echo 0)
-    if [[ "$ready" -ge 1 ]]; then pass "deployment/frontend ready=$ready"; else fail "deployment/frontend not ready"; fi
-
-    step "Probes (startup/live/ready on 6 apps)"
-    for dep in identity flight booking search notification frontend; do
-        if [[ "$dep" == "frontend" ]]; then
-            ns=apollo-airlines-ui
+        endpoint=$(kubectl get deployment "$dep" -n apollo-airlines-apps -o jsonpath='{.spec.template.spec.containers[0].env[?(@.name=="OTEL_EXPORTER_OTLP_ENDPOINT")].value}' 2>/dev/null || true)
+        [[ "$endpoint" == "$expected_otel" ]] && pass "$dep OTLP endpoint uses cross-namespace FQDN" || fail "$dep OTLP endpoint=$endpoint"
+        pod=$(kubectl get pod -n apollo-airlines-apps -l "app=$dep" -o jsonpath='{.items[0].metadata.name}')
+        port=$(kubectl get service "$dep" -n apollo-airlines-apps -o jsonpath='{.spec.ports[0].port}')
+        if [[ "$dep" == "identity" ]]; then
+            metrics=$(kubectl exec -n apollo-airlines-apps "$pod" -- python3 -c \
+                "import urllib.request; print(urllib.request.urlopen('http://127.0.0.1:$port/metrics').read().decode())" 2>/dev/null || true)
         else
-            ns=apollo-airlines-apps
+            metrics=$(kubectl exec -n apollo-airlines-apps "$pod" -- wget -qO- "http://127.0.0.1:$port/metrics" 2>/dev/null || true)
         fi
-        for probe in startupProbe livenessProbe readinessProbe; do
-            path=$(kubectl get deployment "$dep" -n "$ns" -o jsonpath="{.spec.template.spec.containers[0].$probe.httpGet.path}" 2>/dev/null || echo "")
-            if [[ "$path" == "/healthz/"* ]]; then
-                pass "deployment/$dep $probe path=$path"
-            else
-                fail "deployment/$dep $probe missing or wrong path ($path)"
-            fi
-        done
+        grep -q 'http_requests_total' <<<"$metrics" && pass "$dep exposes real request counters" || fail "$dep /metrics lacks http_requests_total"
+        grep -q 'http_request_duration_ms' <<<"$metrics" && pass "$dep exposes latency histogram" || fail "$dep /metrics lacks latency histogram"
     done
 
-    step "PodDisruptionBudgets (2 expected)"
-    kubectl get pdb booking-pdb -n apollo-airlines-apps >/dev/null 2>&1 && pass "pdb/booking-pdb" || fail "pdb/booking-pdb missing"
-    kubectl get pdb frontend-pdb -n apollo-airlines-ui >/dev/null 2>&1 && pass "pdb/frontend-pdb" || fail "pdb/frontend-pdb missing"
-
-    step "Gateway (envoy)"
-    kubectl get ns envoy-gateway-system >/dev/null 2>&1 && pass "ns/envoy-gateway-system" || fail "ns/envoy-gateway-system missing"
-    kubectl get ns metallb-system >/dev/null 2>&1 && pass "ns/metallb-system" || fail "ns/metallb-system missing"
-    kubectl get gateway apollo-gateway -n apollo-airlines-apps >/dev/null 2>&1 && pass "gateway/apollo-gateway" || fail "gateway/apollo-gateway missing"
-
-    step "HTTPRoutes (5 expected: identity, flight, booking, search, notification, frontend)"
-    for app in identity flight booking search notification; do
-        kubectl get httproute "$app" -n apollo-airlines-apps >/dev/null 2>&1 && pass "httproute/$app" || fail "httproute/$app missing"
+    step "Stage 6 observability workloads"
+    for dep in grafana loki tempo; do
+        kubectl rollout status "deployment/$dep" -n apollo-observability --timeout=30s >/dev/null 2>&1 && pass "$dep ready" || fail "$dep not ready"
     done
-    kubectl get httproute frontend -n apollo-airlines-ui >/dev/null 2>&1 && pass "httproute/frontend" || fail "httproute/frontend missing"
-    kubectl get referencegrant apollo-gateway-grant -n apollo-airlines-ui >/dev/null 2>&1 && pass "referencegrant/apollo-gateway-grant" || fail "referencegrant/apollo-gateway-grant missing"
+    for ds in otel-collector alloy; do
+        desired=$(kubectl get daemonset "$ds" -n apollo-observability -o jsonpath='{.status.desiredNumberScheduled}' 2>/dev/null || echo 0)
+        ready=$(kubectl get daemonset "$ds" -n apollo-observability -o jsonpath='{.status.numberReady}' 2>/dev/null || echo 0)
+        [[ "$desired" -gt 0 && "$ready" == "$desired" ]] && pass "$ds DaemonSet $ready/$desired ready" || fail "$ds DaemonSet $ready/$desired ready"
+    done
 
-    step "OTEL env vars in pod specs (Stage 6 carryover check)"
-    for dep in identity flight booking search notification; do
-        otel_ep=$(kubectl get deployment "$dep" -n apollo-airlines-apps -o jsonpath='{.spec.template.spec.containers[0].env[?(@.name=="OTEL_EXPORTER_OTLP_ENDPOINT")].value}' 2>/dev/null || echo "")
-        if [[ "$otel_ep" == "otel-collector:4317" ]]; then
-            pass "deployment/$dep OTEL_EXPORTER_OTLP_ENDPOINT=otel-collector:4317"
+    step "Prometheus discovery, rules, Grafana, Tempo, and Loki APIs"
+    pf_log=$(mktemp)
+    kubectl port-forward -n apollo-observability service/prometheus 19090:9090 >"$pf_log" 2>&1 &
+    pf_pid=$!
+    for _ in $(seq 1 20); do curl -fsS http://127.0.0.1:19090/-/ready >/dev/null 2>&1 && break; sleep 1; done
+    active_targets=0
+    for _ in $(seq 1 20); do
+        targets=$(curl -fsS http://127.0.0.1:19090/api/v1/targets 2>/dev/null || true)
+        active_targets=$(grep -o '"health":"up"' <<<"$targets" | wc -l | tr -d ' ' || true)
+        [[ "$active_targets" -ge 5 ]] && break
+        sleep 3
+    done
+    [[ "$active_targets" -ge 5 ]] && pass "Prometheus has at least 5 healthy backend targets" || fail "Prometheus healthy targets=$active_targets"
+    rules=$(curl -fsS http://127.0.0.1:19090/api/v1/rules 2>/dev/null || true)
+    grep -q 'ApolloServiceDown' <<<"$rules" && pass "Prometheus loaded Apollo rules" || fail "Prometheus did not load Apollo rules"
+    kill "$pf_pid" >/dev/null 2>&1 || true
+    wait "$pf_pid" 2>/dev/null || true
+    rm -f "$pf_log"
+
+    kubectl port-forward -n apollo-observability service/grafana 13000:3000 >/tmp/stage6-grafana-pf.log 2>&1 & grafana_pf=$!
+    for _ in $(seq 1 20); do grafana_health=$(curl -fsS http://127.0.0.1:13000/api/health 2>/dev/null || true); [[ -n "$grafana_health" ]] && break; sleep 1; done
+    grep -q '"database": "ok"' <<<"$grafana_health" && pass "Grafana API healthy" || fail "Grafana API unhealthy"
+    kill "$grafana_pf" >/dev/null 2>&1 || true; wait "$grafana_pf" 2>/dev/null || true
+    dashboard_count=$(kubectl get configmap -n apollo-observability -l app.kubernetes.io/name=grafana -o name | grep -c 'dashboard-' || true)
+    [[ "$dashboard_count" -ge 5 ]] && pass "5 Grafana dashboards provisioned" || fail "Grafana dashboard ConfigMaps=$dashboard_count"
+    kubectl port-forward -n apollo-observability service/tempo 13100:3100 >/tmp/stage6-tempo-pf.log 2>&1 & tempo_pf=$!
+    for _ in $(seq 1 20); do curl -fsS http://127.0.0.1:13100/ready >/dev/null 2>&1 && break; sleep 1; done
+    curl -fsS http://127.0.0.1:13100/ready >/dev/null 2>&1 && pass "Tempo API ready" || fail "Tempo API not ready"
+    kill "$tempo_pf" >/dev/null 2>&1 || true; wait "$tempo_pf" 2>/dev/null || true
+    kubectl port-forward -n apollo-observability service/loki 13101:3100 >/tmp/stage6-loki-pf.log 2>&1 & loki_pf=$!
+    for _ in $(seq 1 20); do curl -fsS http://127.0.0.1:13101/ready >/dev/null 2>&1 && break; sleep 1; done
+    curl -fsS http://127.0.0.1:13101/ready >/dev/null 2>&1 && pass "Loki API ready" || fail "Loki API not ready"
+
+    grafana_envoy_ip=$(kubectl get service -n envoy-gateway-system \
+        -l gateway.envoyproxy.io/owning-gateway-name=apollo-gateway \
+        -o jsonpath='{.items[0].status.loadBalancer.ingress[0].ip}' 2>/dev/null || true)
+    if [[ -n "$grafana_envoy_ip" ]]; then
+        grafana_code=$(curl -s -o /dev/null -w '%{http_code}' -H 'Host: grafana.apollo.local' "http://$grafana_envoy_ip/api/health" 2>/dev/null || echo 000)
+        [[ "$grafana_code" == "200" ]] && pass "Envoy -> Grafana /api/health -> 200" || fail "Envoy -> Grafana /api/health -> $grafana_code"
+    else
+        fail "Envoy LoadBalancer IP unavailable for Grafana route check"
+    fi
+
+    if bash "$(dirname "$0")/trace-test.sh" >/tmp/stage6-trace-test.log 2>&1; then
+        pass "cross-service booking trace reached Tempo"
+    else
+        fail "cross-service trace test failed (see /tmp/stage6-trace-test.log)"
+    fi
+
+    step "Alloy log delivery and trace/log correlation"
+    sleep 5
+    loki_query=$(curl -fsS 'http://127.0.0.1:13101/loki/api/v1/query_range?query=%7Bnamespace%3D%22apollo-airlines-apps%22%7D&limit=20' 2>/dev/null || true)
+    grep -q '"status":"success"' <<<"$loki_query" && pass "Loki query API returned Kubernetes logs" || fail "Loki query did not return logs"
+    kill "$loki_pf" >/dev/null 2>&1 || true; wait "$loki_pf" 2>/dev/null || true
+fi
+
+# Both packaging modes install the same Envoy Gateway + MetalLB access stack.
+
+# ---------------------------------------------------------------------------
+# Namespaces
+# ---------------------------------------------------------------------------
+step "Namespaces (2 expected: apollo-airlines-apps, apollo-airlines-ui)"
+for ns in apollo-airlines-apps apollo-airlines-ui; do
+    if kubectl get ns "$ns" >/dev/null 2>&1; then pass "ns/$ns"; else fail "ns/$ns missing"; fi
+done
+
+# ---------------------------------------------------------------------------
+# ServiceAccounts (13 expected)
+# ---------------------------------------------------------------------------
+step "ServiceAccounts (13 expected: 6 apps + 4 data + 3 init)"
+EXPECTED_SAS=(
+  "apollo-airlines-apps:identity"     "apollo-airlines-apps:flight"
+  "apollo-airlines-apps:booking"      "apollo-airlines-apps:search"
+  "apollo-airlines-apps:notification" "apollo-airlines-ui:frontend"
+  "apollo-airlines-apps:identity-db"  "apollo-airlines-apps:flight-db"
+  "apollo-airlines-apps:booking-db"   "apollo-airlines-apps:redis"
+  "apollo-airlines-apps:init-identity-db"
+  "apollo-airlines-apps:init-flight-db"
+  "apollo-airlines-apps:init-booking-db"
+)
+for sa in "${EXPECTED_SAS[@]}"; do
+    ns="${sa%%:*}"; name="${sa##*:}"
+    if kubectl get sa "$name" -n "$ns" >/dev/null 2>&1; then
+        pass "sa $ns/$name"
+    else
+        fail "sa $ns/$name missing"
+    fi
+done
+
+# ---------------------------------------------------------------------------
+# ConfigMap + Secret
+# ---------------------------------------------------------------------------
+step "ConfigMap + Secret"
+if kubectl get cm apollo-airlines-config -n apollo-airlines-apps >/dev/null 2>&1; then
+    pass "cm/apollo-airlines-config in apollo-airlines-apps"
+else
+    fail "cm/apollo-airlines-config missing in apollo-airlines-apps"
+fi
+if kubectl get cm apollo-airlines-config -n apollo-airlines-ui >/dev/null 2>&1; then
+    pass "cm/apollo-airlines-config in apollo-airlines-ui"
+else
+    fail "cm/apollo-airlines-config missing in apollo-airlines-ui"
+fi
+if kubectl get secret apollo-airlines-secrets -n apollo-airlines-apps >/dev/null 2>&1; then
+    pass "secret/apollo-airlines-secrets in apollo-airlines-apps"
+else
+    fail "secret/apollo-airlines-secrets missing in apollo-airlines-apps"
+fi
+
+# ---------------------------------------------------------------------------
+# StatefulSets
+# ---------------------------------------------------------------------------
+step "StatefulSets (4 expected: 3 PG + 1 Redis, all 1/1 Ready)"
+for sts in identity-db flight-db booking-db redis; do
+    ready=$(kubectl get statefulset "$sts" -n apollo-airlines-apps -o jsonpath='{.status.readyReplicas}' 2>/dev/null || echo 0)
+    if [[ "$ready" -ge 1 ]]; then
+        pass "statefulset/$sts ready=$ready"
+    else
+        fail "statefulset/$sts not ready (ready=$ready)"
+    fi
+done
+
+step "StatefulSet pods (4 expected, all Ready)"
+for pod in identity-db-0 flight-db-0 booking-db-0 redis-0; do
+    cond=$(kubectl get pod "$pod" -n apollo-airlines-apps -o jsonpath='{.status.conditions[?(@.type=="Ready")].status}' 2>/dev/null || echo "")
+    if [[ "$cond" == "True" ]]; then
+        pass "pod/$pod Ready"
+    else
+        fail "pod/$pod not Ready (cond=$cond)"
+    fi
+done
+
+# ---------------------------------------------------------------------------
+# PVCs
+# ---------------------------------------------------------------------------
+step "PVCs (4 expected, all Bound)"
+EXPECTED_PVCS=(
+  "apollo-airlines-apps:pg-data-identity-db-0"
+  "apollo-airlines-apps:pg-data-flight-db-0"
+  "apollo-airlines-apps:pg-data-booking-db-0"
+  "apollo-airlines-apps:redis-data-redis-0"
+)
+for p in "${EXPECTED_PVCS[@]}"; do
+    ns="${p%%:*}"; name="${p##*:}"
+    phase=$(kubectl get pvc "$name" -n "$ns" -o jsonpath='{.status.phase}' 2>/dev/null || echo "")
+    if [[ "$phase" == "Bound" ]]; then
+        pass "pvc $ns/$name Bound"
+    else
+        fail "pvc $ns/$name phase=$phase (expected Bound)"
+    fi
+done
+
+# ---------------------------------------------------------------------------
+# Headless Services
+# ---------------------------------------------------------------------------
+step "Headless Services (4 expected)"
+for svc in identity-db-headless flight-db-headless booking-db-headless redis-headless; do
+    clusterIP=$(kubectl get svc "$svc" -n apollo-airlines-apps -o jsonpath='{.spec.clusterIP}' 2>/dev/null || echo "")
+    if [[ "$clusterIP" == "None" ]]; then
+        pass "svc/$svc headless"
+    else
+        fail "svc/$svc clusterIP=$clusterIP (expected None)"
+    fi
+done
+
+# ---------------------------------------------------------------------------
+# App Deployments
+# ---------------------------------------------------------------------------
+step "App Deployments (5 expected, all >=1 Ready)"
+for dep in identity flight booking search notification; do
+    ready=$(kubectl get deployment "$dep" -n apollo-airlines-apps -o jsonpath='{.status.readyReplicas}' 2>/dev/null || echo 0)
+    if [[ "$ready" -ge 1 ]]; then
+        pass "deployment/$dep ready=$ready"
+    else
+        fail "deployment/$dep not ready (ready=$ready)"
+    fi
+done
+for probe in startupProbe livenessProbe readinessProbe; do
+    path=$(kubectl get deployment frontend -n apollo-airlines-ui -o jsonpath="{.spec.template.spec.containers[0].$probe.httpGet.path}" 2>/dev/null || echo "")
+    if [[ -n "$path" && "$path" == "/healthz/"* ]]; then
+        pass "deployment/frontend $probe path=$path"
+    else
+        fail "deployment/frontend $probe missing or wrong path ($path)"
+    fi
+done
+
+step "StatefulSet probes (liveness + readiness, no startup probe)"
+for sts in identity-db flight-db booking-db redis; do
+    for probe in livenessProbe readinessProbe; do
+        command=$(kubectl get statefulset "$sts" -n apollo-airlines-apps -o jsonpath="{.spec.template.spec.containers[0].$probe.exec.command[0]}" 2>/dev/null || echo "")
+        if [[ -n "$command" ]]; then
+            pass "statefulset/$sts $probe command=$command"
         else
-            fail "deployment/$dep OTEL_EXPORTER_OTLP_ENDPOINT=$otel_ep (expected otel-collector:4317)"
+            fail "statefulset/$sts $probe missing"
         fi
     done
+    startup=$(kubectl get statefulset "$sts" -n apollo-airlines-apps -o jsonpath='{.spec.template.spec.containers[0].startupProbe}' 2>/dev/null || echo "")
+    if [[ -z "$startup" || "$startup" == "<nil>" || "$startup" == "null" ]]; then
+        pass "statefulset/$sts has no startupProbe"
+    else
+        fail "statefulset/$sts unexpectedly has startupProbe"
+    fi
+done
 
-    step "Prometheus scrape annotations on pods"
-    for dep in identity flight booking search notification; do
-        scrape=$(kubectl get deployment "$dep" -n apollo-airlines-apps -o jsonpath='{.spec.template.metadata.annotations.prometheus\.io/scrape}' 2>/dev/null || echo "")
-        if [[ "$scrape" == "true" ]]; then
-            pass "deployment/$dep has prometheus.io/scrape=true"
+# ---------------------------------------------------------------------------
+# Frontend Deployment
+# ---------------------------------------------------------------------------
+step "Frontend Deployment (1 expected)"
+ready=$(kubectl get deployment frontend -n apollo-airlines-ui -o jsonpath='{.status.readyReplicas}' 2>/dev/null || echo 0)
+if [[ "$ready" -ge 1 ]]; then
+    pass "deployment/frontend ready=$ready"
+else
+    fail "deployment/frontend not ready (ready=$ready)"
+fi
+
+# ---------------------------------------------------------------------------
+# Probes (Stage 4 contract — startup/live/ready on 6 apps)
+# ---------------------------------------------------------------------------
+step "Probes on 6 app Deployments (startup/live/ready, all 3 distinct)"
+for dep in identity flight booking search notification; do
+    for probe in startupProbe livenessProbe readinessProbe; do
+        path=$(kubectl get deployment "$dep" -n apollo-airlines-apps -o jsonpath="{.spec.template.spec.containers[0].$probe.httpGet.path}" 2>/dev/null || echo "")
+        if [[ -n "$path" && "$path" == "/healthz/"* ]]; then
+            pass "deployment/$dep $probe path=$path"
         else
-            fail "deployment/$dep missing prometheus.io/scrape annotation (got '$scrape')"
+            fail "deployment/$dep $probe missing or wrong path ($path)"
         fi
+    done
+done
+
+# ---------------------------------------------------------------------------
+# Resources (Guaranteed QoS — requests == limits)
+# ---------------------------------------------------------------------------
+step "Resources: CPU and memory requests == limits on all 10 workloads"
+for entry in \
+    "deployment:apollo-airlines-apps:identity" \
+    "deployment:apollo-airlines-apps:flight" \
+    "deployment:apollo-airlines-apps:booking" \
+    "deployment:apollo-airlines-apps:search" \
+    "deployment:apollo-airlines-apps:notification" \
+    "deployment:apollo-airlines-ui:frontend" \
+    "statefulset:apollo-airlines-apps:identity-db" \
+    "statefulset:apollo-airlines-apps:flight-db" \
+    "statefulset:apollo-airlines-apps:booking-db" \
+    "statefulset:apollo-airlines-apps:redis"; do
+    kind="${entry%%:*}"; remainder="${entry#*:}"; ns="${remainder%%:*}"; name="${remainder##*:}"
+    req_cpu=$(kubectl get "$kind" "$name" -n "$ns" -o jsonpath='{.spec.template.spec.containers[0].resources.requests.cpu}' 2>/dev/null || echo "")
+    lim_cpu=$(kubectl get "$kind" "$name" -n "$ns" -o jsonpath='{.spec.template.spec.containers[0].resources.limits.cpu}' 2>/dev/null || echo "")
+    req_mem=$(kubectl get "$kind" "$name" -n "$ns" -o jsonpath='{.spec.template.spec.containers[0].resources.requests.memory}' 2>/dev/null || echo "")
+    lim_mem=$(kubectl get "$kind" "$name" -n "$ns" -o jsonpath='{.spec.template.spec.containers[0].resources.limits.memory}' 2>/dev/null || echo "")
+    if [[ -n "$req_cpu" && "$req_cpu" == "$lim_cpu" && -n "$req_mem" && "$req_mem" == "$lim_mem" ]]; then
+        pass "$kind/$name Guaranteed resources cpu=$req_cpu memory=$req_mem"
+    else
+        fail "$kind/$name resource mismatch cpu=$req_cpu/$lim_cpu memory=$req_mem/$lim_mem"
+    fi
+done
+
+# ---------------------------------------------------------------------------
+# terminationGracePeriodSeconds
+# ---------------------------------------------------------------------------
+step "terminationGracePeriodSeconds (30s apps, 60s data workloads)"
+for dep in identity flight booking search notification; do
+    grace=$(kubectl get deployment "$dep" -n apollo-airlines-apps -o jsonpath='{.spec.template.spec.terminationGracePeriodSeconds}' 2>/dev/null || echo "")
+    if [[ "$grace" == "30" ]]; then
+        pass "deployment/$dep terminationGracePeriodSeconds=30"
+    else
+        fail "deployment/$dep terminationGracePeriodSeconds=$grace (expected 30)"
+    fi
+done
+grace=$(kubectl get deployment frontend -n apollo-airlines-ui -o jsonpath='{.spec.template.spec.terminationGracePeriodSeconds}' 2>/dev/null || echo "")
+if [[ "$grace" == "30" ]]; then pass "deployment/frontend terminationGracePeriodSeconds=30"; else fail "deployment/frontend terminationGracePeriodSeconds=$grace (expected 30)"; fi
+for sts in identity-db flight-db booking-db redis; do
+    grace=$(kubectl get statefulset "$sts" -n apollo-airlines-apps -o jsonpath='{.spec.template.spec.terminationGracePeriodSeconds}' 2>/dev/null || echo "")
+    if [[ "$grace" == "60" ]]; then pass "statefulset/$sts terminationGracePeriodSeconds=60"; else fail "statefulset/$sts terminationGracePeriodSeconds=$grace (expected 60)"; fi
+done
+
+# ---------------------------------------------------------------------------
+# PodDisruptionBudgets (chart applies both; kustomize prod applies both)
+# ---------------------------------------------------------------------------
+step "PodDisruptionBudgets match the selected environment"
+if [[ "$ENV" == "prod" ]]; then
+    for entry in "apollo-airlines-apps:booking-pdb" "apollo-airlines-ui:frontend-pdb"; do
+        ns="${entry%%:*}"; name="${entry##*:}"
+        min=$(kubectl get pdb "$name" -n "$ns" -o jsonpath='{.spec.minAvailable}' 2>/dev/null || echo "")
+        if [[ "$min" == "2" ]]; then pass "pdb/$name minAvailable=2"; else fail "pdb/$name minAvailable=$min (expected 2)"; fi
+    done
+else
+    for entry in "apollo-airlines-apps:booking-pdb" "apollo-airlines-ui:frontend-pdb"; do
+        ns="${entry%%:*}"; name="${entry##*:}"
+        if kubectl get pdb "$name" -n "$ns" >/dev/null 2>&1; then fail "pdb/$name should be disabled in $ENV"; else pass "pdb/$name disabled in $ENV"; fi
     done
 fi
 
-# =============================================================================
-# Stage 6: Observability
-# =============================================================================
-if [[ "$SKIP_OBSERVABILITY" != "true" ]]; then
-    step "Observability namespace"
-    if kubectl get ns apollo-observability >/dev/null 2>&1; then
-        pass "ns/apollo-observability"
+# ---------------------------------------------------------------------------
+# Seed Jobs
+# ---------------------------------------------------------------------------
+step "Seed Jobs (3 expected: identity, flight, booking — all Complete)"
+for job in seed-identity-db seed-flight-db seed-booking-db; do
+        status=$(kubectl get job "$job" -n apollo-airlines-apps -o jsonpath='{.status.conditions[?(@.type=="Complete")].status}' 2>/dev/null || echo "")
+        if [[ "$status" == "True" ]]; then
+            pass "job/$job Complete"
+        else
+            fail "job/$job status=$status (expected Complete=True)"
+        fi
+done
+
+# ---------------------------------------------------------------------------
+# Runtime contract inherited from Stages 3 and 4
+# ---------------------------------------------------------------------------
+step "Database URLs expanded from Secret-backed environment variables"
+for dep in identity flight booking; do
+    if kubectl exec -n apollo-airlines-apps "deployment/$dep" -- \
+        sh -c 'case "$DATABASE_URL" in *\$\(*) exit 1 ;; *) exit 0 ;; esac' >/dev/null 2>&1; then
+        pass "deployment/$dep DATABASE_URL contains no unexpanded variable"
     else
-        fail "ns/apollo-observability missing (run apply.sh without --skip-observability)"
-        SKIP_OBSERVABILITY=true   # cascade: skip downstream checks
+        fail "deployment/$dep DATABASE_URL still contains an unexpanded variable"
+    fi
+done
+
+step "Live probe endpoints respond inside all 6 application pods"
+for entry in \
+    "apollo-airlines-apps:identity:8080" \
+    "apollo-airlines-apps:flight:8081" \
+    "apollo-airlines-apps:booking:8082" \
+    "apollo-airlines-apps:search:8083" \
+    "apollo-airlines-apps:notification:8084" \
+    "apollo-airlines-ui:frontend:3000"; do
+    ns="${entry%%:*}"; remainder="${entry#*:}"; app="${remainder%%:*}"; port="${entry##*:}"
+    for endpoint in startup live ready; do
+        response=$(kubectl exec -n "$ns" "deployment/$app" -- \
+            sh -c "wget -q -O- --tries=1 http://127.0.0.1:$port/healthz/$endpoint 2>/dev/null || echo FAIL" 2>/dev/null | tr -d '\n' || echo "")
+        if [[ -n "$response" && "$response" != "FAIL" && "$response" != *error* ]]; then
+            pass "$app /healthz/$endpoint responds"
+        else
+            # The Python slim identity image intentionally has no wget.
+            response=$(kubectl exec -n "$ns" "deployment/$app" -- \
+                python3 -c "import urllib.request; print(urllib.request.urlopen('http://127.0.0.1:$port/healthz/$endpoint').status)" \
+                2>/dev/null | tr -d '\n' || echo "")
+            if [[ "$response" == "200" ]]; then
+                pass "$app /healthz/$endpoint responds"
+            else
+                fail "$app /healthz/$endpoint is unreachable"
+            fi
+        fi
+    done
+done
+
+step "Seed data is present"
+users=$(kubectl exec -n apollo-airlines-apps identity-db-0 -- \
+    psql -U postgres -d identity -tAc 'SELECT count(*) FROM users;' 2>/dev/null || echo 0)
+airports=$(kubectl exec -n apollo-airlines-apps flight-db-0 -- \
+    psql -U postgres -d flight -tAc 'SELECT count(*) FROM airports;' 2>/dev/null || echo 0)
+flights=$(kubectl exec -n apollo-airlines-apps flight-db-0 -- \
+    psql -U postgres -d flight -tAc 'SELECT count(*) FROM flights;' 2>/dev/null || echo 0)
+if [[ "$users" -ge 2 ]]; then pass "identity seed has $users users"; else fail "identity seed has $users users (expected >=2)"; fi
+if [[ "$airports" -ge 6 ]]; then pass "flight seed has $airports airports"; else fail "flight seed has $airports airports (expected >=6)"; fi
+if [[ "$flights" -ge 180 ]]; then pass "flight seed has $flights flights"; else fail "flight seed has $flights flights (expected >=180)"; fi
+
+step "Frontend bundle contains routed API hosts and no localhost API URLs"
+bundle_urls=$(kubectl exec -n apollo-airlines-ui deployment/frontend -- \
+    grep -R -o -E 'http://(localhost:[0-9]+|[a-z]+\.apollo\.local)' \
+    /usr/share/nginx/html/assets 2>/dev/null || echo "")
+missing_hosts=()
+for host in identity flight booking search; do
+    if ! grep -q "http://${host}.apollo.local" <<<"$bundle_urls"; then missing_hosts+=("$host.apollo.local"); fi
+done
+if grep -q 'http://localhost:' <<<"$bundle_urls"; then
+    fail "frontend bundle contains localhost API URLs"
+elif [[ "${#missing_hosts[@]}" -gt 0 ]]; then
+    fail "frontend bundle is missing API hosts: ${missing_hosts[*]}"
+else
+    pass "frontend bundle has all four routed API hosts"
+fi
+
+if [[ "$MODE" == "helm" ]]; then
+    step "Helm release and workload ownership metadata"
+    release_status=$(helm status apollo11 -n apollo-airlines-apps -o json 2>/dev/null | jq -r '.info.status // empty' || echo "")
+    if [[ "$release_status" == "deployed" ]]; then pass "Helm release apollo11 status=deployed"; else fail "Helm release apollo11 status=$release_status"; fi
+    for entry in \
+        "deployment:apollo-airlines-apps:identity" "deployment:apollo-airlines-apps:flight" \
+        "deployment:apollo-airlines-apps:booking" "deployment:apollo-airlines-apps:search" \
+        "deployment:apollo-airlines-apps:notification" "deployment:apollo-airlines-ui:frontend" \
+        "statefulset:apollo-airlines-apps:identity-db" "statefulset:apollo-airlines-apps:flight-db" \
+        "statefulset:apollo-airlines-apps:booking-db" "statefulset:apollo-airlines-apps:redis"; do
+        kind="${entry%%:*}"; remainder="${entry#*:}"; ns="${remainder%%:*}"; name="${remainder##*:}"
+        owner=$(kubectl get "$kind" "$name" -n "$ns" -o jsonpath='{.metadata.labels.app\.kubernetes\.io/managed-by}' 2>/dev/null || echo "")
+        if [[ "$owner" == "Helm" ]]; then pass "$kind/$name managed-by=Helm"; else fail "$kind/$name managed-by=$owner (expected Helm)"; fi
+    done
+fi
+
+# ---------------------------------------------------------------------------
+# Gateway (both packaging modes)
+# ---------------------------------------------------------------------------
+if [[ "$GATEWAY_EXPECTED" == "true" ]]; then
+    step "Envoy Gateway access stack"
+
+    if kubectl get ns envoy-gateway-system >/dev/null 2>&1; then
+        pass "ns/envoy-gateway-system"
+    else
+        fail "ns/envoy-gateway-system missing"
     fi
 
-    if [[ "$SKIP_OBSERVABILITY" != "true" ]]; then
-        step "ServiceAccount + ClusterRole"
-        kubectl get sa observability-stack -n apollo-observability >/dev/null 2>&1 && pass "sa/observability-stack" || fail "sa/observability-stack missing"
-        kubectl get clusterrole apollo-observability >/dev/null 2>&1 && pass "clusterrole/apollo-observability" || fail "clusterrole/apollo-observability missing"
-        kubectl get clusterrolebinding apollo-observability >/dev/null 2>&1 && pass "clusterrolebinding/apollo-observability" || fail "clusterrolebinding/apollo-observability missing"
+    if kubectl get ns metallb-system >/dev/null 2>&1; then
+        pass "ns/metallb-system"
+    else
+        fail "ns/metallb-system missing"
+    fi
 
-        step "Observability pods (5 expected: prometheus, grafana, otel-collector, tempo, loki, promtail)"
-        for pod in prometheus grafana otel-collector tempo loki; do
-            if [[ "$pod" == "otel-collector" ]]; then
-                # DaemonSet — there will be one per node
-                count=$(kubectl get pods -n apollo-observability -l "app.kubernetes.io/name=$pod" --no-headers 2>/dev/null | grep -c "1/1" || echo 0)
-                if [[ "$count" -ge 1 ]]; then
-                    pass "$pod: $count pod(s) Ready"
-                else
-                    fail "$pod: no Ready pods"
-                fi
-            else
-                if kubectl get pods -n apollo-observability -l "app.kubernetes.io/name=$pod" --no-headers 2>/dev/null | grep -q "1/1"; then
-                    pass "$pod 1/1 Ready"
-                else
-                    fail "$pod not 1/1 Ready"
-                fi
-            fi
+    if kubectl get gatewayclass eg >/dev/null 2>&1; then
+        pass "gatewayclass/eg"
+    else
+        fail "gatewayclass/eg missing"
+    fi
+
+    if kubectl get gateway apollo-gateway -n apollo-airlines-apps >/dev/null 2>&1; then
+        # Check the Gateway has a programmed condition
+        programmed=$(kubectl get gateway apollo-gateway -n apollo-airlines-apps -o jsonpath='{.status.conditions[?(@.type=="Programmed")].status}' 2>/dev/null || echo "")
+        if [[ "$programmed" == "True" ]]; then
+            pass "gateway/apollo-gateway Programmed"
+        else
+            fail "gateway/apollo-gateway not Programmed (status=$programmed)"
+        fi
+    else
+        fail "gateway/apollo-gateway missing"
+    fi
+
+    step "HTTPRoutes (6 expected: identity, flight, booking, search, notification, frontend)"
+    for route in identity flight booking search notification; do
+        if kubectl get httproute "$route" -n apollo-airlines-apps >/dev/null 2>&1; then
+            pass "httproute/$route"
+        else
+            fail "httproute/$route missing"
+        fi
+    done
+    if kubectl get httproute frontend -n apollo-airlines-ui >/dev/null 2>&1; then
+        pass "httproute/frontend (cross-namespace)"
+    else
+        fail "httproute/frontend missing in apollo-airlines-ui"
+    fi
+
+    step "ReferenceGrant (cross-namespace)"
+    if kubectl get referencegrant apollo-gateway-grant -n apollo-airlines-ui >/dev/null 2>&1; then
+        pass "referencegrant/apollo-gateway-grant"
+    else
+        fail "referencegrant/apollo-gateway-grant missing"
+    fi
+
+    step "MetalLB IP pool + L2 advertisement"
+    if kubectl get ipaddresspool apollo-pool -n metallb-system >/dev/null 2>&1; then
+        pass "ipaddresspool/apollo-pool"
+    else
+        fail "ipaddresspool/apollo-pool missing"
+    fi
+    if kubectl get l2advertisement apollo-l2 -n metallb-system >/dev/null 2>&1; then
+        pass "l2advertisement/apollo-l2"
+    else
+        fail "l2advertisement/apollo-l2 missing"
+    fi
+
+    step "HTTPRoutes are attached and live through the MetalLB address"
+    envoy_ip=$(kubectl get service -n envoy-gateway-system \
+        -l gateway.envoyproxy.io/owning-gateway-name=apollo-gateway \
+        -o jsonpath='{.items[0].status.loadBalancer.ingress[0].ip}' 2>/dev/null || echo "")
+    if [[ -n "$envoy_ip" ]]; then pass "Envoy LoadBalancer address=$envoy_ip"; else fail "Envoy LoadBalancer has no address"; fi
+    parent_count=$(kubectl get httproute -A -o custom-columns='P:.status.parents[*].controllerName' --no-headers 2>/dev/null | grep -c gateway.envoyproxy.io || true)
+    if [[ "$parent_count" -ge 6 ]]; then pass "all 6 HTTPRoutes report an Envoy parent"; else fail "only $parent_count/6 HTTPRoutes report an Envoy parent"; fi
+    if [[ -n "$envoy_ip" ]]; then
+        for route in identity flight booking search notification; do
+            code=$(curl -s -o /dev/null -w '%{http_code}' -H "Host: $route.apollo.local" "http://$envoy_ip/healthz" 2>/dev/null || echo 000)
+            if [[ "$code" == "200" ]]; then pass "Envoy -> $route /healthz -> 200"; else fail "Envoy -> $route /healthz -> $code"; fi
         done
-        count=$(kubectl get pods -n apollo-observability -l "app.kubernetes.io/name=promtail" --no-headers 2>/dev/null | grep -c "1/1" || echo 0)
-        if [[ "$count" -ge 1 ]]; then
-            pass "promtail: $count pod(s) Ready"
-        else
-            fail "promtail: no Ready pods"
-        fi
-
-        step "Services (5 expected: prometheus, grafana, otel-collector, tempo, loki)"
-        for svc in prometheus grafana tempo loki; do
-            kubectl get svc "$svc" -n apollo-observability >/dev/null 2>&1 && pass "svc/$svc" || fail "svc/$svc missing"
-        done
-
-        step "ServiceMonitors (5 expected: identity, flight, booking, search, notification)"
-        for app in identity flight booking search notification; do
-            kubectl get servicemonitor "$app" -n apollo-observability >/dev/null 2>&1 && pass "servicemonitor/$app" || fail "servicemonitor/$app missing"
-        done
-
-        step "Alert rules (PrometheusRule loaded)"
-        rule_count=$(kubectl exec -n apollo-observability deploy/prometheus -- \
-            wget -qO- 'http://localhost:9090/api/v1/rules' 2>/dev/null | \
-            grep -oE '"name":"[^"]+"' | grep -v '^\s*$' | wc -l || echo 0)
-        if [[ "$rule_count" -ge 15 ]]; then
-            pass "Prometheus has $rule_count rule groups loaded (target: ≥15)"
-        else
-            fail "Prometheus only has $rule_count rule groups (target: ≥15)"
-        fi
-
-        step "Real /metrics endpoint (Prometheus exposition format, not JSON)"
-        # Pick a healthy booking pod and curl its /metrics. Expect lines like
-        # "# HELP http_requests_total ..." and "# TYPE http_requests_total counter".
-        booking_pod=$(kubectl get pods -n apollo-airlines-apps -l app=booking -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || echo "")
-        if [[ -z "$booking_pod" ]]; then
-            fail "no booking pod found"
-        else
-            metrics_output=$(kubectl exec -n apollo-airlines-apps "$booking_pod" -- wget -qO- http://localhost:8082/metrics 2>/dev/null || echo "")
-            if echo "$metrics_output" | grep -q "http_requests_total"; then
-                pass "booking /metrics returns Prometheus exposition format with http_requests_total"
-            else
-                fail "booking /metrics does not return Prometheus format"
-            fi
-        fi
-
-        step "Grafana dashboards (5 expected: overview, booking, errors, saturation, trace-viewer)"
-        for d in overview booking errors saturation trace-viewer; do
-            kubectl get cm "grafana-dashboard-$d" -n apollo-observability >/dev/null 2>&1 && pass "dashboard/$d" || fail "dashboard/$d missing"
-        done
-
-        step "Grafana HTTPRoute + ReferenceGrant"
-        kubectl get httproute grafana -n apollo-observability >/dev/null 2>&1 && pass "httproute/grafana" || fail "httproute/grafana missing"
-        kubectl get referencegrant grafana-route-grant -n apollo-airlines-apps >/dev/null 2>&1 && pass "referencegrant/grafana-route-grant" || fail "referencegrant/grafana-route-grant missing"
-
-        step "Grafana datasources (3 expected: Prometheus, Loki, Tempo)"
-        ds_count=$(kubectl get cm grafana-datasources -n apollo-observability -o jsonpath='{.data.datasources\.yaml}' 2>/dev/null | grep -cE "^\s+- name:" || echo 0)
-        if [[ "$ds_count" -eq 3 ]]; then
-            pass "Grafana has $ds_count datasources (Prometheus, Loki, Tempo)"
-        else
-            fail "Grafana has $ds_count datasources (expected 3)"
-        fi
-
-        step "Prometheus self-check (can query 5 services up)"
-        # After ServiceMonitors have been running for 90s+, Prometheus should
-        # have scraped each service at least once. Query the up{} metric.
-        up_count=$(kubectl exec -n apollo-observability deploy/prometheus -- \
-            wget -qO- 'http://localhost:9090/api/v1/query?query=up' 2>/dev/null | \
-            grep -oE '"service":"[a-z]+"' | sort -u | wc -l || echo 0)
-        if [[ "$up_count" -ge 5 ]]; then
-            pass "Prometheus reports $up_count distinct services up"
-        else
-            fail "Prometheus only sees $up_count services (expected ≥5)"
-        fi
+        code=$(curl -s -o /dev/null -w '%{http_code}' -H 'Host: frontend.apollo.local' "http://$envoy_ip/" 2>/dev/null || echo 000)
+        if [[ "$code" == "200" ]]; then pass "Envoy -> frontend / -> 200"; else fail "Envoy -> frontend / -> $code"; fi
+        login=$(curl -s -X POST -H 'Host: identity.apollo.local' -H 'Content-Type: application/json' \
+            -d '{"email":"admin@apolloairlines.com","password":"admin123"}' \
+            "http://$envoy_ip/api/users/login" 2>/dev/null || echo "")
+        if grep -q '"token":"[^"]' <<<"$login"; then pass "login flow through Envoy returned a token"; else fail "login flow through Envoy did not return a token"; fi
     fi
 fi
 
-# =============================================================================
-# Stage 7: Orbital Maneuvering — HPA, VPA, PriorityClass, Redis cache
-# =============================================================================
-if [[ "$SKIP_STAGE7" != "true" && "$SKIP_WORKLOADS" != "true" ]]; then
-    step "Stage 7 — metrics-server"
-    if kubectl get pods -n kube-system -l k8s-app=metrics-server --no-headers 2>/dev/null | grep -q "1/1"; then
-        pass "metrics-server 1/1 Ready"
-    else
-        fail "metrics-server not 1/1 Ready (HPA cannot compute CPU% without it)"
-    fi
-    # kubectl top is the end-to-end check — exercises the full pipeline
-    # (API server → metrics-server → kubelet → cadvisor).
-    if kubectl top nodes 2>/dev/null | grep -q "NAME"; then
-        pass "kubectl top nodes returns data"
-    else
-        fail "kubectl top nodes returned no data (metrics-server API not serving)"
-    fi
+# ---------------------------------------------------------------------------
+# Stage 7 autoscaling, scheduling, and Redis cache
+# ---------------------------------------------------------------------------
+if [[ "$STAGE7_EXPECTED" == "true" ]]; then
+    step "Stage 7 metrics-server and HorizontalPodAutoscaler"
+    kubectl rollout status deployment/metrics-server -n kube-system --timeout=30s >/dev/null 2>&1 && \
+        pass "metrics-server ready" || fail "metrics-server not ready"
+    kubectl top nodes >/dev/null 2>&1 && pass "metrics.k8s.io returns node data" || \
+        fail "metrics.k8s.io returned no node data"
 
-    step "Stage 7 — VPA components (skipped if vpa-system ns absent, e.g. dev)"
-    if kubectl get namespace vpa-system >/dev/null 2>&1; then
-        for component in recommender updater admission-controller; do
-            if kubectl get pods -n vpa-system -l "app=$component" --no-headers 2>/dev/null | grep -q "1/1"; then
-                pass "vpa-$component 1/1 Ready"
-            else
-                fail "vpa-$component not 1/1 Ready"
-            fi
-        done
-        # The autoscaling.k8s.io API group must be registered.
-        if kubectl get crd verticalpodautoscalers.autoscaling.k8s.io >/dev/null 2>&1; then
-            pass "crd/verticalpodautoscalers.autoscaling.k8s.io registered"
-        else
-            fail "VPA CRD not registered"
-        fi
-    else
-        ok "vpa-system namespace absent (VPA disabled in this env) — skipping VPA checks"
-    fi
-
-    step "Stage 7 — HPA (search)"
     if kubectl get hpa search-hpa -n apollo-airlines-apps >/dev/null 2>&1; then
         pass "hpa/search-hpa exists"
     else
         fail "hpa/search-hpa missing"
     fi
-    min_r=$(kubectl get hpa search-hpa -n apollo-airlines-apps -o jsonpath='{.spec.minReplicas}' 2>/dev/null || echo "")
-    max_r=$(kubectl get hpa search-hpa -n apollo-airlines-apps -o jsonpath='{.spec.maxReplicas}' 2>/dev/null || echo "")
-    if [[ "$min_r" == "2" && "$max_r" == "10" ]]; then
-        pass "hpa min=2 max=10"
-    else
-        fail "hpa min=$min_r max=$max_r (expected 2/10)"
-    fi
-    target=$(kubectl get hpa search-hpa -n apollo-airlines-apps -o jsonpath='{.spec.metrics[0].resource.target.averageUtilization}' 2>/dev/null || echo "")
-    if [[ "$target" == "70" ]]; then
-        pass "hpa target CPU utilization = 70%"
-    else
-        fail "hpa target CPU = $target (expected 70)"
-    fi
-    # Behavior block (scaleDown stabilization, scaleUp policies).
-    if kubectl get hpa search-hpa -n apollo-airlines-apps -o jsonpath='{.spec.behavior.scaleDown.stabilizationWindowSeconds}' 2>/dev/null | grep -q "300"; then
-        pass "hpa scaleDown stabilizationWindowSeconds = 300"
-    else
-        fail "hpa scaleDown stabilization not 300s"
-    fi
+    case "$ENV" in
+        dev) expected_min=1; expected_max=3; expected_cpu=70 ;;
+        prod) expected_min=3; expected_max=20; expected_cpu=60 ;;
+        *) expected_min=2; expected_max=10; expected_cpu=70 ;;
+    esac
+    actual_min=$(kubectl get hpa search-hpa -n apollo-airlines-apps -o jsonpath='{.spec.minReplicas}' 2>/dev/null || echo "")
+    actual_max=$(kubectl get hpa search-hpa -n apollo-airlines-apps -o jsonpath='{.spec.maxReplicas}' 2>/dev/null || echo "")
+    [[ "$actual_min" == "$expected_min" && "$actual_max" == "$expected_max" ]] && \
+        pass "search HPA bounds=$actual_min/$actual_max" || \
+        fail "search HPA bounds=$actual_min/$actual_max (expected $expected_min/$expected_max)"
+    target_cpu=$(kubectl get hpa search-hpa -n apollo-airlines-apps -o jsonpath='{.spec.metrics[0].resource.target.averageUtilization}' 2>/dev/null || echo "")
+    [[ "$target_cpu" == "$expected_cpu" ]] && pass "search HPA CPU target=$expected_cpu%" || \
+        fail "search HPA CPU target=$target_cpu (expected $expected_cpu)"
+    scale_down=$(kubectl get hpa search-hpa -n apollo-airlines-apps -o jsonpath='{.spec.behavior.scaleDown.stabilizationWindowSeconds}' 2>/dev/null || echo "")
+    [[ "$scale_down" == "300" ]] && pass "search HPA scale-down stabilization=300s" || fail "search HPA scale-down stabilization=$scale_down"
 
-    step "Stage 7 — VPA (search, Off mode)"
-    if kubectl get namespace vpa-system >/dev/null 2>&1 && \
-       kubectl get vpa search-vpa -n apollo-airlines-apps >/dev/null 2>&1; then
-        pass "vpa/search-vpa exists"
+    step "Stage 7 VerticalPodAutoscaler recommendation mode"
+    if [[ "$ENV" == "dev" ]]; then
+        if kubectl get vpa search-vpa -n apollo-airlines-apps >/dev/null 2>&1; then
+            fail "vpa/search-vpa exists in dev (expected disabled)"
+        else
+            pass "VPA intentionally disabled in dev"
+        fi
+    else
+        kubectl rollout status deployment/vpa-recommender -n kube-system --timeout=30s >/dev/null 2>&1 && \
+            pass "vpa-recommender ready" || fail "vpa-recommender not ready"
         mode=$(kubectl get vpa search-vpa -n apollo-airlines-apps -o jsonpath='{.spec.updatePolicy.updateMode}' 2>/dev/null || echo "")
-        if [[ "$mode" == "Off" ]]; then
-            pass "vpa updateMode = Off (recommendations only, no HPA conflict)"
-        else
-            fail "vpa updateMode = $mode (expected Off — Auto would fight the HPA)"
-        fi
-        min_cpu=$(kubectl get vpa search-vpa -n apollo-airlines-apps -o jsonpath='{.spec.resourcePolicy.containerPolicies[0].minAllowed.cpu}' 2>/dev/null || echo "")
-        max_mem=$(kubectl get vpa search-vpa -n apollo-airlines-apps -o jsonpath='{.spec.resourcePolicy.containerPolicies[0].maxAllowed.memory}' 2>/dev/null || echo "")
-        if [[ "$min_cpu" == "50m" ]]; then
-            pass "vpa minAllowed.cpu = 50m"
-        else
-            fail "vpa minAllowed.cpu = $min_cpu (expected 50m)"
-        fi
-        if [[ "$max_mem" == "512Mi" ]]; then
-            pass "vpa maxAllowed.memory = 512Mi"
-        else
-            fail "vpa maxAllowed.memory = $max_mem (expected 512Mi)"
-        fi
-    else
-        ok "vpa/search-vpa absent (VPA disabled) — skipping VPA resource checks"
+        [[ "$mode" == "Off" ]] && pass "search VPA updateMode=Off" || fail "search VPA updateMode=$mode"
     fi
 
-    step "Stage 7 — PriorityClass"
-    crit_val=$(kubectl get priorityclass apollo-airlines-app-critical -o jsonpath='{.value}' 2>/dev/null || echo "")
-    low_val=$(kubectl get priorityclass apollo-airlines-app-low -o jsonpath='{.value}' 2>/dev/null || echo "")
-    if [[ "$crit_val" == "1000000" ]]; then
-        pass "priorityclass/apollo-airlines-app-critical value=1000000"
-    else
-        fail "priorityclass/apollo-airlines-app-critical value=$crit_val (expected 1000000)"
-    fi
-    if [[ "$low_val" == "-100000" ]]; then
-        pass "priorityclass/apollo-airlines-app-low value=-100000"
-    else
-        fail "priorityclass/apollo-airlines-app-low value=$low_val (expected -100000)"
-    fi
+    step "Stage 7 PriorityClasses and scheduling policy"
+    critical=$(kubectl get priorityclass apollo-airlines-app-critical -o jsonpath='{.value}' 2>/dev/null || echo "")
+    low=$(kubectl get priorityclass apollo-airlines-app-low -o jsonpath='{.value}' 2>/dev/null || echo "")
+    [[ "$critical" == "1000000" ]] && pass "critical PriorityClass value=1000000" || fail "critical PriorityClass value=$critical"
+    [[ "$low" == "-100000" ]] && pass "low PriorityClass value=-100000" || fail "low PriorityClass value=$low"
+    for entry in booking:apollo-airlines-app-critical search:apollo-airlines-app-critical notification:apollo-airlines-app-low; do
+        dep="${entry%%:*}"; expected="${entry##*:}"
+        actual=$(kubectl get deployment "$dep" -n apollo-airlines-apps -o jsonpath='{.spec.template.spec.priorityClassName}' 2>/dev/null || echo "")
+        [[ "$actual" == "$expected" ]] && pass "deployment/$dep priorityClassName=$actual" || \
+            fail "deployment/$dep priorityClassName=$actual (expected $expected)"
+    done
+    toleration=$(kubectl get deployment search -n apollo-airlines-apps -o jsonpath='{.spec.template.spec.tolerations[?(@.key=="workload")].value}' 2>/dev/null || echo "")
+    [[ "$toleration" == "search" ]] && pass "search tolerates workload=search" || fail "search toleration value=$toleration"
+    affinity_weight=$(kubectl get deployment search -n apollo-airlines-apps -o jsonpath='{.spec.template.spec.affinity.nodeAffinity.preferredDuringSchedulingIgnoredDuringExecution[0].weight}' 2>/dev/null || echo "")
+    [[ "$affinity_weight" == "100" ]] && pass "search node-affinity weight=100" || fail "search node-affinity weight=$affinity_weight"
 
-    step "Stage 7 — priorityClassName wired into booking + notification pods"
-    # Get a booking pod and check its spec.priorityClassName.
-    booking_pod=$(kubectl get pods -n apollo-airlines-apps -l app=booking -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || echo "")
-    if [[ -n "$booking_pod" ]]; then
-        bpc=$(kubectl get pod "$booking_pod" -n apollo-airlines-apps -o jsonpath='{.spec.priorityClassName}' 2>/dev/null || echo "")
-        if [[ "$bpc" == "apollo-airlines-app-critical" ]]; then
-            pass "booking pod priorityClassName = apollo-airlines-app-critical"
-        else
-            fail "booking pod priorityClassName = '$bpc' (expected apollo-airlines-app-critical)"
-        fi
+    step "Stage 7 Redis cache behavior and metrics"
+    search_pod=$(kubectl get pod -n apollo-airlines-apps -l app=search -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || echo "")
+    redis_pod=$(kubectl get pod -n apollo-airlines-apps -l app=redis -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || echo "")
+    if [[ -z "$search_pod" || -z "$redis_pod" ]]; then
+        fail "search or Redis pod missing"
     else
-        fail "no booking pod found"
-    fi
-    notif_pod=$(kubectl get pods -n apollo-airlines-apps -l app=notification -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || echo "")
-    if [[ -n "$notif_pod" ]]; then
-        npc=$(kubectl get pod "$notif_pod" -n apollo-airlines-apps -o jsonpath='{.spec.priorityClassName}' 2>/dev/null || echo "")
-        if [[ "$npc" == "apollo-airlines-app-low" ]]; then
-            pass "notification pod priorityClassName = apollo-airlines-app-low"
-        else
-            fail "notification pod priorityClassName = '$npc' (expected apollo-airlines-app-low)"
-        fi
-    else
-        fail "no notification pod found"
-    fi
-
-    step "Stage 7 — search tolerations + nodeAffinity"
-    # Inspect the search Deployment's pod spec (not a live pod — a live pod
-    # would have the same fields, but the Deployment is the source of truth).
-    tol=$(kubectl get deployment search -n apollo-airlines-apps -o jsonpath='{.spec.template.spec.tolerations[0].key}' 2>/dev/null || echo "")
-    if [[ "$tol" == "workload" ]]; then
-        pass "search Deployment toleration key = workload"
-    else
-        fail "search Deployment toleration key = '$tol' (expected workload)"
-    fi
-    tol_val=$(kubectl get deployment search -n apollo-airlines-apps -o jsonpath='{.spec.template.spec.tolerations[0].value}' 2>/dev/null || echo "")
-    if [[ "$tol_val" == "search" ]]; then
-        pass "search Deployment toleration value = search"
-    else
-        fail "search Deployment toleration value = '$tol_val' (expected search)"
-    fi
-    aff=$(kubectl get deployment search -n apollo-airlines-apps -o jsonpath='{.spec.template.spec.affinity.nodeAffinity.preferredDuringSchedulingIgnoredDuringExecution[0].weight}' 2>/dev/null || echo "")
-    if [[ "$aff" == "100" ]]; then
-        pass "search Deployment nodeAffinity preferred weight = 100"
-    else
-        fail "search Deployment nodeAffinity preferred weight = '$aff' (expected 100)"
-    fi
-
-    step "Stage 7 — Redis cache on search"
-    # The search pod's /healthz/ready returns {status:ready, cache: ok|disabled|unreachable}
-    search_pod=$(kubectl get pods -n apollo-airlines-apps -l app=search -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || echo "")
-    if [[ -z "$search_pod" ]]; then
-        fail "no search pod found"
-    else
-        # /healthz/ready body should include "cache":"ok" (Redis up) or
-        # "cache":"disabled" (Redis nil — degraded startup) or
-        # "cache":"unreachable" (Redis reachable on init but not now).
-        # Any of these means the readiness handler ran and the cache code path
-        # is wired in. We accept ok or disabled as the happy path.
-        cache_state=$(kubectl exec -n apollo-airlines-apps "$search_pod" -- \
-            wget -qO- 'http://localhost:8083/healthz/ready' 2>/dev/null | \
-            grep -oE '"cache":"[a-z]+"' | head -1 | sed 's/"cache":"//;s/"//' || echo "")
-        if [[ "$cache_state" == "ok" || "$cache_state" == "disabled" || "$cache_state" == "unreachable" ]]; then
-            pass "search /healthz/ready reports cache state = $cache_state"
-        else
-            fail "search /healthz/ready body has no cache field (got: $cache_state)"
-        fi
-
-        # /metrics must expose the new cache_hits_total + cache_misses_total counters.
-        metrics_body=$(kubectl exec -n apollo-airlines-apps "$search_pod" -- \
-            wget -qO- 'http://localhost:8083/metrics' 2>/dev/null || echo "")
-        if echo "$metrics_body" | grep -q '^# HELP cache_hits_total'; then
-            pass "search /metrics exposes cache_hits_total"
-        else
-            fail "search /metrics does not expose cache_hits_total"
-        fi
-        if echo "$metrics_body" | grep -q '^# HELP cache_misses_total'; then
-            pass "search /metrics exposes cache_misses_total"
-        else
-            fail "search /metrics does not expose cache_misses_total"
-        fi
-
-        # Make a search call to seed at least one cache miss.
-        # In-cluster: the search service is reachable at search:8083.
-        miss_body=$(kubectl exec -n apollo-airlines-apps "$search_pod" -- \
-            wget -qO- 'http://localhost:8083/api/search?origin=BOM&destination=SIN&date=today' 2>/dev/null || echo "")
-        if echo "$miss_body" | grep -q "results"; then
-            pass "search /api/search returns results on first call (MISS expected)"
-        else
-            fail "search /api/search returned no results: $miss_body"
-        fi
-    fi
-
-    step "Stage 7 — Redis cache key visible in redis"
-    # Use the redis-0 pod directly (single-node kind has redis as a
-    # StatefulSet with 1 replica). redis-cli is in the redis:7-alpine image.
-    redis_pod=$(kubectl get pods -n apollo-airlines-apps -l app=redis -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || echo "")
-    if [[ -z "$redis_pod" ]]; then
-        fail "no redis pod found"
-    else
-        key_count=$(kubectl exec -n apollo-airlines-apps "$redis_pod" -- \
-            sh -c "redis-cli KEYS 'search:*'" 2>/dev/null | grep -c "search:" || echo 0)
-        if [[ "$key_count" -ge 1 ]]; then
-            pass "redis has $key_count search:* keys"
-        else
-            fail "redis has 0 search:* keys (cache miss above should have written one)"
-        fi
+        cache_date=$(date +%F)
+        cache_key="search:BOM:SIN:$cache_date"
+        kubectl exec -n apollo-airlines-apps "$redis_pod" -- redis-cli DEL "$cache_key" >/dev/null 2>&1 || true
+        search_url="http://localhost:8083/api/search?origin=BOM&destination=SIN&date=$cache_date"
+        first_headers=$(kubectl exec -n apollo-airlines-apps "$search_pod" -- sh -c "wget -S -O /dev/null '$search_url' 2>&1" || echo "")
+        second_headers=$(kubectl exec -n apollo-airlines-apps "$search_pod" -- sh -c "wget -S -O /dev/null '$search_url' 2>&1" || echo "")
+        grep -qi 'X-Cache: MISS' <<<"$first_headers" && pass "first search response X-Cache=MISS" || fail "first search response missing X-Cache=MISS"
+        grep -qi 'X-Cache: HIT' <<<"$second_headers" && pass "second search response X-Cache=HIT" || fail "second search response missing X-Cache=HIT"
+        redis_ttl=$(kubectl exec -n apollo-airlines-apps "$redis_pod" -- redis-cli TTL "$cache_key" 2>/dev/null || echo -2)
+        [[ "$redis_ttl" -gt 0 && "$redis_ttl" -le 300 ]] && pass "Redis cache TTL=$redis_ttl seconds" || fail "Redis cache TTL=$redis_ttl"
+        metrics=$(kubectl exec -n apollo-airlines-apps "$search_pod" -- wget -qO- http://localhost:8083/metrics 2>/dev/null || echo "")
+        grep -q '^# HELP cache_hits_total' <<<"$metrics" && pass "cache_hits_total exposed" || fail "cache_hits_total missing"
+        grep -q '^# HELP cache_misses_total' <<<"$metrics" && pass "cache_misses_total exposed" || fail "cache_misses_total missing"
     fi
 fi
 
-# =============================================================================
+# ---------------------------------------------------------------------------
 # Summary
-# =============================================================================
+# ---------------------------------------------------------------------------
 TOTAL=$((PASS+FAIL))
 echo ""
 echo "============================================"
 echo -e "  ${GREEN}PASS: $PASS${NC}  /  ${RED}FAIL: $FAIL${NC}  /  TOTAL: $TOTAL"
 echo "============================================"
 if [[ "$FAIL" -gt 0 ]]; then
-    echo ""
-    echo "  Troubleshooting:"
-    echo "    kubectl get pods -n apollo-observability"
-    echo "    kubectl logs -n apollo-observability -l app.kubernetes.io/name=otel-collector --tail=50"
-    echo "    kubectl logs -n apollo-observability -l app.kubernetes.io/name=prometheus --tail=50"
-    echo "    kubectl get hpa -n apollo-airlines-apps"
-    echo "    kubectl describe vpa search-vpa -n apollo-airlines-apps"
     exit 1
 fi
 echo -e "${GREEN}All Stage 7 checks passed.${NC}"

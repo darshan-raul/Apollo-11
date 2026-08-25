@@ -5,9 +5,9 @@
 #   ./uninstall.sh                  # delete the argocd namespace only
 #   ./uninstall.sh --purge         # also delete cluster-scoped CRDs ArgoCD owns
 #
-# IMPORTANT: this does NOT delete the Applications you registered under
-# `apollo-airlines` (those live in a separate namespace). Run
-# `scripts/teardown.sh --full` for that.
+# IMPORTANT: Applications now live in `argocd`; deleting this namespace
+# directly bypasses their resource finalizers. Run `scripts/teardown.sh
+# --full` so tenant resources are pruned first.
 
 set -euo pipefail
 

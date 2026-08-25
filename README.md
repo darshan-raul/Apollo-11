@@ -128,12 +128,12 @@ Frontend → Booking Service → Identity Service
 
 ---
 
-### Stage 7 : 🛰️ Orbital Maneuvering – Scaling ☐ [📖 README](stages/stage7/README.md)
+### Stage 7 : 🛰️ Orbital Maneuvering – Scaling ✅ [📖 README](stages/stage7/README.md)
 
-* ☐ Automatically scale workloads using **Horizontal Pod Autoscaler (HPA)**.
-* ☐ Control where Pods run using **taints and tolerations**.
-* ☐ Influence scheduling decisions using **node affinity rules**.
-* ☐ Control Pod co-location and separation using **pod affinity and anti-affinity**.
+* ✅ Automatically scale workloads using **Horizontal Pod Autoscaler (HPA)**.
+* ✅ Generate recommendation-only resource guidance using **Vertical Pod Autoscaler (VPA)**.
+* ✅ Add Redis cache-aside behavior with observable HIT/MISS responses.
+* ✅ Control scheduling using **PriorityClasses**, tolerations, and node affinity.
     
 ---
 

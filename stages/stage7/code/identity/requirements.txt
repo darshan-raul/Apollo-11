@@ -13,5 +13,8 @@ opentelemetry-exporter-otlp-proto-grpc==1.26.0
 opentelemetry-instrumentation-fastapi==0.47b0
 opentelemetry-instrumentation-psycopg2==0.47b0
 opentelemetry-instrumentation-requests==0.47b0
+requests==2.32.3
 # Stage 6: Prometheus client for /metrics
 prometheus-client==0.20.0
+# OpenTelemetry instrumentation 0.47b0 imports pkg_resources.
+setuptools==70.1.0

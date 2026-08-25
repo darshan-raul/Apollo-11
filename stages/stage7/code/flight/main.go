@@ -17,8 +17,8 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/golang-jwt/jwt/v5"
-	_ "github.com/lib/pq"
 	"github.com/google/uuid"
+	_ "github.com/lib/pq"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"go.opentelemetry.io/contrib/instrumentation/github.com/gin-gonic/gin/otelgin"
@@ -44,7 +44,7 @@ var (
 		[]string{"service", "method", "path", "status"},
 	)
 	httpRequestDurationMs = prometheus.NewHistogramVec(
-		prometheus.HistogramOpts{Name: "http_request_duration_ms", Help: "HTTP request latency (ms).", Buckets: prometheus.DefBuckets},
+		prometheus.HistogramOpts{Name: "http_request_duration_ms", Help: "HTTP request latency (ms).", Buckets: []float64{1, 5, 10, 25, 50, 100, 250, 500, 1000, 2500, 5000}},
 		[]string{"service", "method", "path"},
 	)
 )
@@ -148,6 +148,14 @@ func generateRequestID() string {
 	return uuid.New().String()
 }
 
+func traceIDFromContext(ctx context.Context) string {
+	spanContext := trace.SpanFromContext(ctx).SpanContext()
+	if !spanContext.IsValid() {
+		return ""
+	}
+	return spanContext.TraceID().String()
+}
+
 func initOTEL(ctx context.Context, serviceName string) (func(context.Context) error, error) {
 	endpoint := getEnv("OTEL_EXPORTER_OTLP_ENDPOINT", "otel-collector:4317")
 	res, err := resource.New(ctx,
@@ -210,6 +218,9 @@ func metricsMiddleware(service string) gin.HandlerFunc {
 		start := time.Now()
 		c.Next()
 		path := c.FullPath()
+		if path == "/metrics" {
+			return
+		}
 		if path == "" {
 			path = "unknown"
 		}
@@ -291,7 +302,7 @@ func main() {
 	r.GET("/metrics", gin.WrapH(prometheusHandler()))
 
 	r.GET("/api/flights", func(c *gin.Context) {
-		traceID, _ := c.Get("request_id")
+		traceID := traceIDFromContext(c.Request.Context())
 		ctx := c.Request.Context()
 		origin := c.Query("origin")
 		destination := c.Query("destination")
@@ -320,7 +331,7 @@ func main() {
 
 		rows, err := db.QueryContext(ctx, query, args...)
 		if err != nil {
-			logJSON("ERROR", "flight-service", fmt.Sprintf("Query failed: %v", err), traceID.(string), "", nil)
+			logJSON("ERROR", "flight-service", fmt.Sprintf("Query failed: %v", err), traceID, "", nil)
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "Query failed"})
 			return
 		}
@@ -338,12 +349,12 @@ func main() {
 			f.ArrivalTime = arrTime.Format(time.RFC3339)
 			flights = append(flights, f)
 		}
-		logJSON("INFO", "flight-service", "Flight search", traceID.(string), "", map[string]interface{}{"count": len(flights)})
+		logJSON("INFO", "flight-service", "Flight search", traceID, "", map[string]interface{}{"count": len(flights)})
 		c.JSON(http.StatusOK, gin.H{"flights": flights})
 	})
 
 	r.GET("/api/flights/:id", func(c *gin.Context) {
-		traceID, _ := c.Get("request_id")
+		traceID := traceIDFromContext(c.Request.Context())
 		ctx := c.Request.Context()
 		id := c.Param("id")
 
@@ -358,7 +369,7 @@ func main() {
 			return
 		}
 		if err != nil {
-			logJSON("ERROR", "flight-service", fmt.Sprintf("DB error: %v", err), traceID.(string), "", nil)
+			logJSON("ERROR", "flight-service", fmt.Sprintf("DB error: %v", err), traceID, "", nil)
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "DB error"})
 			return
 		}
@@ -368,7 +379,7 @@ func main() {
 	})
 
 	r.POST("/api/flights", authRequired("ADMIN"), func(c *gin.Context) {
-		traceID, _ := c.Get("request_id")
+		traceID := traceIDFromContext(c.Request.Context())
 		var req CreateFlightRequest
 		if err := c.ShouldBindJSON(&req); err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request"})
@@ -390,18 +401,18 @@ func main() {
 			req.FlightNumber, req.Origin, req.Destination, depTime, arrTime, req.TotalCapacity,
 		).Scan(&f.ID, &f.FlightNumber, &f.Origin, &f.Destination, &depTime, &arrTime, &f.AvailableSeats, &f.Status)
 		if err != nil {
-			logJSON("ERROR", "flight-service", fmt.Sprintf("Create flight failed: %v", err), traceID.(string), "", nil)
+			logJSON("ERROR", "flight-service", fmt.Sprintf("Create flight failed: %v", err), traceID, "", nil)
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create flight"})
 			return
 		}
 		f.DepartureTime = depTime.Format(time.RFC3339)
 		f.ArrivalTime = arrTime.Format(time.RFC3339)
-		logJSON("INFO", "flight-service", "Flight created", traceID.(string), "", map[string]interface{}{"flight": f.FlightNumber})
+		logJSON("INFO", "flight-service", "Flight created", traceID, "", map[string]interface{}{"flight": f.FlightNumber})
 		c.JSON(http.StatusCreated, f)
 	})
 
 	r.PUT("/api/flights/:id", authRequired("ADMIN"), func(c *gin.Context) {
-		traceID, _ := c.Get("request_id")
+		traceID := traceIDFromContext(c.Request.Context())
 		id := c.Param("id")
 		var updates map[string]interface{}
 		if err := c.ShouldBindJSON(&updates); err != nil {
@@ -436,7 +447,7 @@ func main() {
 			return
 		}
 		if err != nil {
-			logJSON("ERROR", "flight-service", fmt.Sprintf("Update flight failed: %v", err), traceID.(string), "", nil)
+			logJSON("ERROR", "flight-service", fmt.Sprintf("Update flight failed: %v", err), traceID, "", nil)
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "Update failed"})
 			return
 		}
@@ -445,8 +456,8 @@ func main() {
 		c.JSON(http.StatusOK, f)
 	})
 
-	r.PATCH("/api/flights/:id/seats", authRequired("ADMIN"), func(c *gin.Context) {
-		traceID, _ := c.Get("request_id")
+	r.PATCH("/api/flights/:id/seats", authRequired("SERVICE"), func(c *gin.Context) {
+		traceID := traceIDFromContext(c.Request.Context())
 		id := c.Param("id")
 		var req UpdateSeatsRequest
 		if err := c.ShouldBindJSON(&req); err != nil {
@@ -475,13 +486,13 @@ func main() {
 			req.Delta, id,
 		).Scan(&f.ID, &f.FlightNumber, &f.Origin, &f.Destination, &depTime, &arrTime, &f.AvailableSeats, &f.Status)
 		if err != nil {
-			logJSON("ERROR", "flight-service", fmt.Sprintf("Seat update failed: %v", err), traceID.(string), "", nil)
+			logJSON("ERROR", "flight-service", fmt.Sprintf("Seat update failed: %v", err), traceID, "", nil)
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "Update failed"})
 			return
 		}
 		f.DepartureTime = depTime.Format(time.RFC3339)
 		f.ArrivalTime = arrTime.Format(time.RFC3339)
-		logJSON("INFO", "flight-service", "Seats updated", traceID.(string), "", map[string]interface{}{"flight": f.FlightNumber, "delta": req.Delta})
+		logJSON("INFO", "flight-service", "Seats updated", traceID, "", map[string]interface{}{"flight": f.FlightNumber, "delta": req.Delta})
 		c.JSON(http.StatusOK, f)
 	})
 
@@ -529,7 +540,7 @@ func authRequired(requiredRole string) gin.HandlerFunc {
 		tokenString := parts[1]
 		token, err := jwt.Parse(tokenString, func(token *jwt.Token) (interface{}, error) {
 			return []byte(jwtSecret), nil
-		})
+		}, jwt.WithValidMethods([]string{"HS256"}))
 		if err != nil || !token.Valid {
 			c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid or expired token"})
 			c.Abort()
@@ -542,7 +553,8 @@ func authRequired(requiredRole string) gin.HandlerFunc {
 			return
 		}
 		role, _ := claims["role"].(string)
-		if requiredRole != "" && role != requiredRole {
+		roleAllowed := requiredRole == "" || role == requiredRole || (requiredRole == "SERVICE" && role == "ADMIN")
+		if !roleAllowed {
 			c.JSON(http.StatusForbidden, gin.H{"error": "Insufficient permissions"})
 			c.Abort()
 			return

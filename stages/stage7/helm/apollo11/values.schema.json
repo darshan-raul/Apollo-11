@@ -1,0 +1,115 @@
+{
+  "$schema": "https://json-schema.org/draft-07/schema#",
+  "type": "object",
+  "required": [
+    "image", "namespaces", "serviceAccounts", "config", "secret",
+    "postgres", "redis", "apps", "frontend", "tiers", "probes",
+    "terminationGracePeriod", "pdb", "gateway", "metallb", "observability"
+  ],
+  "properties": {
+    "image": {
+      "type": "object",
+      "required": ["repository", "pullPolicy", "tag"],
+      "properties": {
+        "repository": { "type": "string", "minLength": 1 },
+        "pullPolicy": { "enum": ["Always", "IfNotPresent", "Never"] },
+        "tag": { "type": "string", "minLength": 1 }
+      }
+    },
+    "namespaces": {
+      "type": "object",
+      "required": ["apps", "ui"],
+      "properties": {
+        "apps": { "type": "string", "minLength": 1 },
+        "ui": { "type": "string", "minLength": 1 }
+      }
+    },
+    "serviceAccounts": { "type": "object" },
+    "config": { "type": "object" },
+    "secret": {
+      "type": "object",
+      "required": ["postgresPassword", "jwtSecret"]
+    },
+    "postgres": {
+      "type": "object",
+      "required": ["storage", "resources", "initScripts", "seedSql"]
+    },
+    "redis": {
+      "type": "object",
+      "required": ["storage", "resources"]
+    },
+    "apps": {
+      "type": "object",
+      "required": ["identity", "flight", "booking", "search", "notification"],
+      "properties": {
+        "identity": { "$ref": "#/definitions/app" },
+        "flight": { "$ref": "#/definitions/app" },
+        "booking": { "$ref": "#/definitions/app" },
+        "search": { "$ref": "#/definitions/app" },
+        "notification": { "$ref": "#/definitions/app" }
+      }
+    },
+    "frontend": {
+      "type": "object",
+      "required": ["port", "replicas"],
+      "properties": {
+        "port": { "type": "integer", "minimum": 1, "maximum": 65535 },
+        "replicas": { "type": "integer", "minimum": 1 }
+      }
+    },
+    "tiers": { "type": "object" },
+    "probes": {
+      "type": "object",
+      "required": ["startup", "liveness", "readiness"]
+    },
+    "terminationGracePeriod": {
+      "type": "object",
+      "required": ["apps", "data"],
+      "properties": {
+        "apps": { "type": "integer", "minimum": 1 },
+        "data": { "type": "integer", "minimum": 1 }
+      }
+    },
+    "pdb": {
+      "type": "object",
+      "required": ["enabled", "booking", "frontend"]
+    },
+    "gateway": {
+      "type": "object",
+      "required": ["enabled", "controllerName", "className", "gatewayName", "hostSuffix", "frontendHost", "envoy"]
+    },
+    "metallb": {
+      "type": "object",
+      "required": ["enabled", "ipPool", "bundleInstall"]
+    },
+    "observability": {
+      "type": "object",
+      "required": ["enabled", "namespace", "operator", "prometheus", "grafana", "otelCollector", "tempo", "loki", "alloy"],
+      "properties": {
+        "enabled": { "type": "boolean" },
+        "namespace": { "type": "string", "minLength": 1 },
+        "operator": { "type": "object", "required": ["enabled", "version"] },
+        "prometheus": { "type": "object", "required": ["enabled", "image", "retention", "storage", "resources"] },
+        "grafana": { "type": "object", "required": ["enabled", "image", "adminUser", "adminPassword", "storage", "anonymousAccess", "resources"] },
+        "otelCollector": { "type": "object", "required": ["enabled", "image", "resources"] },
+        "tempo": { "type": "object", "required": ["enabled", "image", "storage", "retention", "resources"] },
+        "loki": { "type": "object", "required": ["enabled", "image", "storage", "retention", "resources"] },
+        "alloy": { "type": "object", "required": ["enabled", "image", "resources"] }
+      }
+    },
+    "imagePullSecrets": { "type": "array" },
+    "priorityClassName": { "type": "string" }
+  },
+  "definitions": {
+    "app": {
+      "type": "object",
+      "required": ["tier", "port", "replicas"],
+      "properties": {
+        "tier": { "enum": ["default", "flagship", "low", "edge"] },
+        "port": { "type": "integer", "minimum": 1, "maximum": 65535 },
+        "replicas": { "type": "integer", "minimum": 1 },
+        "dependsOn": { "type": "array", "items": { "type": "string" } }
+      }
+    }
+  }
+}

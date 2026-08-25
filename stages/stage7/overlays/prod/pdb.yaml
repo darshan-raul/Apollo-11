@@ -1,0 +1,24 @@
+# PDBs applied only in prod. With 3 replicas and minAvailable=2, at
+# most one pod can be evicted at a time — the kubelet waits for the
+# replacement to become ready before evicting the next.
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: booking-pdb
+  namespace: apollo-airlines-apps
+spec:
+  minAvailable: 2
+  selector:
+    matchLabels:
+      app: booking
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: frontend-pdb
+  namespace: apollo-airlines-ui
+spec:
+  minAvailable: 2
+  selector:
+    matchLabels:
+      app: frontend

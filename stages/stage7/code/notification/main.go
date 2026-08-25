@@ -39,7 +39,7 @@ var (
 		[]string{"service", "method", "path", "status"},
 	)
 	httpRequestDurationMs = prometheus.NewHistogramVec(
-		prometheus.HistogramOpts{Name: "http_request_duration_ms", Help: "HTTP request latency (ms).", Buckets: prometheus.DefBuckets},
+		prometheus.HistogramOpts{Name: "http_request_duration_ms", Help: "HTTP request latency (ms).", Buckets: []float64{1, 5, 10, 25, 50, 100, 250, 500, 1000, 2500, 5000}},
 		[]string{"service", "method", "path"},
 	)
 )
@@ -89,20 +89,28 @@ func initRedis() {
 	opt, err := redis.ParseURL(redisURL)
 	if err != nil {
 		logJSON("ERROR", "notification-service", fmt.Sprintf("Redis URL parse failed: %v", err), "", "", nil)
+		opt = &redis.Options{Addr: "redis:6379"}
 	}
 	redisClient = redis.NewClient(opt)
-	for {
-		_, err := redisClient.Ping(ctx).Result()
-		if err == nil {
-			break
-		}
-		time.Sleep(1 * time.Second)
+	pingCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	if _, err := redisClient.Ping(pingCtx).Result(); err != nil {
+		logJSON("WARN", "notification-service", fmt.Sprintf("Redis unavailable at startup; continuing in degraded mode: %v", err), "", "", nil)
+		return
 	}
 	logJSON("INFO", "notification-service", "Connected to Redis", "", "", nil)
 }
 
 func generateRequestID() string {
 	return uuid.New().String()
+}
+
+func traceIDFromContext(ctx context.Context) string {
+	spanContext := trace.SpanFromContext(ctx).SpanContext()
+	if !spanContext.IsValid() {
+		return ""
+	}
+	return spanContext.TraceID().String()
 }
 
 func initOTEL(ctx context.Context, serviceName string) (func(context.Context) error, error) {
@@ -167,6 +175,9 @@ func metricsMiddleware(service string) gin.HandlerFunc {
 		start := time.Now()
 		c.Next()
 		path := c.FullPath()
+		if path == "/metrics" {
+			return
+		}
 		if path == "" {
 			path = "unknown"
 		}
@@ -178,7 +189,6 @@ func metricsMiddleware(service string) gin.HandlerFunc {
 
 func main() {
 	initRedis()
-	defer redisClient.Close()
 
 	otelCtx, otelCancel := context.WithCancel(context.Background())
 	defer otelCancel()
@@ -242,7 +252,7 @@ func main() {
 	r.GET("/metrics", gin.WrapH(prometheusHandler()))
 
 	r.POST("/api/notify", func(c *gin.Context) {
-		traceID, _ := c.Get("request_id")
+		traceID := traceIDFromContext(c.Request.Context())
 
 		var req NotifyRequest
 		if err := c.ShouldBindJSON(&req); err != nil {
@@ -253,18 +263,18 @@ func main() {
 		eventJSON, _ := json.Marshal(map[string]interface{}{
 			"id":         uuid.New().String(),
 			"type":       req.Type,
-			"recipient":   req.Recipient,
-			"payload":     req.Payload,
+			"recipient":  req.Recipient,
+			"payload":    req.Payload,
 			"trace_id":   traceID,
-			"created_at":  time.Now().UTC().Format(time.RFC3339),
+			"created_at": time.Now().UTC().Format(time.RFC3339),
 		})
 
 		err := redisClient.LPush(ctx, "notifications:queue", string(eventJSON)).Err()
 		if err != nil {
-			logJSON("ERROR", "notification-service", fmt.Sprintf("Failed to push to queue: %v", err), traceID.(string), "", nil)
+			logJSON("ERROR", "notification-service", fmt.Sprintf("Failed to push to queue: %v", err), traceID, "", nil)
 		}
 
-		logJSON("INFO", "notification-service", fmt.Sprintf("Event queued: %s", req.Type), traceID.(string), "", map[string]interface{}{
+		logJSON("INFO", "notification-service", fmt.Sprintf("Event queued: %s", req.Type), traceID, "", map[string]interface{}{
 			"type":      req.Type,
 			"recipient": req.Recipient,
 		})

@@ -1,186 +1,117 @@
 #!/bin/bash
-# Trace Test: end-to-end demonstration that the OTEL SDK + Collector + Tempo
-# pipeline is working. Run after apply.sh.
-#
-# What it does:
-#   1. Login as admin to identity service (gets JWT)
-#   2. POST a booking via booking service
-#   3. Extract the X-Request-ID + trace_id from the response
-#   4. Poll Tempo's HTTP API for that trace_id
-#   5. Print the spans (booking → identity → flight → flight-db → notification)
-#
-# This is the "single trace demonstrates cross-service propagation" win from
-# AGENTS.md §Observability Trace Design.
-#
-# Usage:
-#   ./scripts/trace-test.sh
-#   ./scripts/trace-test.sh --service search
-#   ./scripts/trace-test.sh --json   # print raw trace JSON
-
+# Prove that one booking request forms a single cross-service Tempo trace.
 set -euo pipefail
-
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-SERVICE="booking"
-JSON_OUT=false
-ADMIN_EMAIL="admin@apolloairlines.com"
-ADMIN_PASSWORD="admin123"
-
-usage() {
-    cat <<EOF
-Usage: $0 [--service NAME] [--json]
-
-Options:
-  --service NAME    Which service to call (default: booking).
-                    Options: identity, flight, booking, search, notification.
-  --json            Print raw trace JSON from Tempo instead of pretty spans.
-  --help            Show this help.
-EOF
-    exit 1
-}
-
-while [[ $# -gt 0 ]]; do
-    case $1 in
-        --service) SERVICE="$2"; shift 2 ;;
-        --json)    JSON_OUT=true; shift ;;
-        --help)    usage ;;
-        *) echo "Unknown option: $1"; usage ;;
-    esac
-done
 
 GREEN='\033[0;32m'; CYAN='\033[0;36m'; RED='\033[0;31m'; NC='\033[0m'
 step() { echo -e "${CYAN}▶ $1${NC}"; }
-ok()   { echo -e "${GREEN}✓ $1${NC}"; }
+ok() { echo -e "${GREEN}✓ $1${NC}"; }
 fail() { echo -e "${RED}✗ $1${NC}"; exit 1; }
 
-# Pick a port-forward-friendly access path. We use the in-cluster Service
-# DNS, so this only works from a pod in the same cluster. If you want to
-# run this from outside, first:
-#   kubectl port-forward svc/booking -n apollo-airlines-apps 8082:8082
-# then set BASE_URL to http://localhost:8082.
+DEBUG_POD="stage7-trace-$RANDOM"
+cleanup() { kubectl delete pod "$DEBUG_POD" -n apollo-airlines-apps --wait=false >/dev/null 2>&1 || true; }
+trap cleanup EXIT
 
-BASE_URL="${BASE_URL:-http://booking:8082}"
+step "Starting an in-cluster HTTP client"
+kubectl run "$DEBUG_POD" -n apollo-airlines-apps --image=curlimages/curl:8.10.1 \
+    --restart=Never --command -- sleep 600 >/dev/null
+kubectl wait --for=condition=Ready pod/"$DEBUG_POD" -n apollo-airlines-apps --timeout=120s >/dev/null || fail "debug pod did not become ready"
 
-step "1/5 Logging in as admin"
-# We'll use kubectl exec from inside a debug pod OR port-forward. For
-# simplicity we use a temporary busybox pod in the apps namespace.
-DEBUG_POD="trace-test-debug-$$"
-kubectl run "$DEBUG_POD" -n apollo-airlines-apps \
-    --image=curlimages/curl:8.05.1 --restart=Never \
-    --rm=true --quiet=true \
-    --command -- sleep 600 >/dev/null 2>&1 || true
+step "Authenticating and selecting a seeded flight"
+login=$(kubectl exec -n apollo-airlines-apps "$DEBUG_POD" -- curl -fsS \
+    -H 'Content-Type: application/json' -d '{"email":"passenger@apolloairlines.com","password":"pass123"}' \
+    http://identity:8080/api/users/login)
+token=$(sed -n 's/.*"token":"\([^"]*\)".*/\1/p' <<<"$login")
+[[ -n "$token" ]] || fail "login did not return a token"
+flights=$(kubectl exec -n apollo-airlines-apps "$DEBUG_POD" -- curl -fsS http://flight:8081/api/flights)
+mapfile -t flight_ids < <(grep -o '"id":"[^"]*"' <<<"$flights" | sed 's/"id":"//;s/"$//')
+[[ "${#flight_ids[@]}" -gt 0 ]] || fail "seeded flight not found"
 
-# Wait for the pod to be ready
-for i in $(seq 1 30); do
-    if kubectl get pod "$DEBUG_POD" -n apollo-airlines-apps >/dev/null 2>&1; then
-        if kubectl get pod "$DEBUG_POD" -n apollo-airlines-apps -o jsonpath='{.status.phase}' 2>/dev/null | grep -q Running; then
-            ok "debug pod ready"
-            break
-        fi
+TRACE_ID=$(openssl rand -hex 16)
+SPAN_ID=$(openssl rand -hex 8)
+REQUEST_ID="stage7-$TRACE_ID"
+step "Creating a booking with trace_id=$TRACE_ID"
+booking=""
+chosen_flight_id=""
+seats_before=""
+for flight_id in "${flight_ids[@]}"; do
+    flight_before=$(kubectl exec -n apollo-airlines-apps "$DEBUG_POD" -- curl -fsS "http://flight:8081/api/flights/$flight_id")
+    candidate_seats=$(sed -n 's/.*"availableSeats":\([0-9][0-9]*\).*/\1/p' <<<"$flight_before")
+    response=$(kubectl exec -n apollo-airlines-apps "$DEBUG_POD" -- curl -sS -w $'\n%{http_code}' \
+        -H 'Content-Type: application/json' \
+        -H "Authorization: Bearer $token" \
+        -H "X-Request-ID: $REQUEST_ID" \
+        -H "traceparent: 00-$TRACE_ID-$SPAN_ID-01" \
+        -d "{\"flightId\":\"$flight_id\"}" \
+        http://booking:8082/api/bookings)
+    status=${response##*$'\n'}
+    body=${response%$'\n'*}
+    if [[ "$status" == "200" || "$status" == "201" ]] && grep -q '"bookingReference"' <<<"$body"; then
+        booking="$body"
+        chosen_flight_id="$flight_id"
+        seats_before="$candidate_seats"
+        break
     fi
-    sleep 2
+    [[ "$status" == "409" ]] || fail "booking request returned HTTP $status: $body"
 done
+[[ -n "$booking" ]] || fail "all seeded flights are already booked for the trace-test user"
+[[ "$seats_before" =~ ^[0-9]+$ ]] || fail "could not read available seats before booking"
+flight_after_create=$(kubectl exec -n apollo-airlines-apps "$DEBUG_POD" -- curl -fsS "http://flight:8081/api/flights/$chosen_flight_id")
+seats_after_create=$(sed -n 's/.*"availableSeats":\([0-9][0-9]*\).*/\1/p' <<<"$flight_after_create")
+[[ "$seats_after_create" -eq $((seats_before - 1)) ]] || fail "seat count did not decrement after booking ($seats_before -> $seats_after_create)"
 
-login_response=$(kubectl exec -n apollo-airlines-apps "$DEBUG_POD" -- \
-    curl -s -X POST http://identity:8080/api/users/login \
-    -H "Content-Type: application/json" \
-    -d "{\"email\":\"$ADMIN_EMAIL\",\"password\":\"$ADMIN_PASSWORD\"}" 2>/dev/null || echo "{}")
-TOKEN=$(echo "$login_response" | sed -n 's/.*"token":"\([^"]*\)".*/\1/p')
-if [[ -z "$TOKEN" ]]; then
-    fail "Login failed: $login_response"
-fi
-ok "got JWT (${#TOKEN} chars)"
-
-step "2/5 Listing flights to find a flight ID"
-flights_response=$(kubectl exec -n apollo-airlines-apps "$DEBUG_POD" -- \
-    curl -s "http://flight:8081/api/flights?origin=BOM&destination=DEL" 2>/dev/null || echo "{}")
-flight_id=$(echo "$flights_response" | sed -n 's/.*"flights":\[{"id":"\([^"]*\)".*/\1/p')
-if [[ -z "$flight_id" ]]; then
-    # Try without filter
-    flights_response=$(kubectl exec -n apollo-airlines-apps "$DEBUG_POD" -- \
-        curl -s "http://flight:8081/api/flights" 2>/dev/null || echo "{}")
-    flight_id=$(echo "$flights_response" | sed -n 's/.*"flights":\[{"id":"\([^"]*\)".*/\1/p')
-fi
-if [[ -z "$flight_id" ]]; then
-    fail "no flight found: $flights_response"
-fi
-ok "found flight $flight_id"
-
-step "3/5 Creating a booking (this is the multi-service trace)"
-booking_response=$(kubectl exec -n apollo-airlines-apps "$DEBUG_POD" -- \
-    curl -s -X POST "$BASE_URL/api/bookings" \
-    -H "Content-Type: application/json" \
-    -H "Authorization: Bearer $TOKEN" \
-    -d "{\"flightId\":\"$flight_id\"}" 2>&1 || echo "{}")
-TRACE_ID=$(echo "$booking_response" | grep -oE 'trace[Ii]d":"[a-f0-9]+' | head -1 | sed 's/.*"//')
-REQUEST_ID=$(echo "$booking_response" | grep -oE 'X-Request-Id[^"]*' | head -1 || echo "")
-
-# The trace_id is in the X-Request-ID header (we use that as a trace
-# correlation key in the JSON logger). Real OTEL trace_ids are 32 hex
-# chars; the JSON logger prefixes trace_id with the X-Request-ID.
-echo "$booking_response" > /tmp/trace-test-booking.json
-if [[ -n "$TRACE_ID" ]]; then
-    ok "booking created, trace_id=$TRACE_ID"
-else
-    echo "  booking response: $booking_response"
-    fail "could not extract trace_id from booking response"
-fi
-
-step "4/5 Polling Tempo for the trace (5 attempts, 3s apart)"
-# Wait a moment for the spans to flush
-sleep 5
+step "Waiting for Tempo to contain the cross-service span graph"
 trace_json=""
-for i in 1 2 3 4 5; do
-    trace_json=$(kubectl exec -n apollo-observability deploy/tempo -- \
-        wget -qO- "http://localhost:3100/api/traces/$TRACE_ID" 2>/dev/null || echo "")
-    if [[ -n "$trace_json" && "$trace_json" != "[]" && "$trace_json" != "{}" ]]; then
-        ok "Tempo returned the trace on attempt $i"
+for _ in $(seq 1 20); do
+    trace_json=$(kubectl exec -n apollo-airlines-apps "$DEBUG_POD" -- \
+        curl -fsS "http://tempo.apollo-observability.svc.cluster.local:3100/api/traces/$TRACE_ID" 2>/dev/null || true)
+    if [[ -n "$trace_json" ]] && grep -q 'booking' <<<"$trace_json" && \
+       grep -q 'identity' <<<"$trace_json" && grep -q 'flight' <<<"$trace_json" && \
+       grep -q 'notification' <<<"$trace_json"; then
         break
     fi
     sleep 3
 done
+[[ -n "$trace_json" ]] || fail "Tempo did not return trace $TRACE_ID"
+for service in booking identity flight notification; do
+    grep -q "$service" <<<"$trace_json" || fail "trace $TRACE_ID is missing service $service"
+done
 
-if [[ -z "$trace_json" || "$trace_json" == "[]" ]]; then
-    fail "Tempo did not return trace $TRACE_ID after 5 attempts. Check otel-collector logs."
-fi
-
-step "5/5 Trace contents"
-if [[ "$JSON_OUT" == "true" ]]; then
-    echo "$trace_json" | python3 -m json.tool
-else
-    # Parse the JSON, print span name + service for each
-    python3 - "$trace_json" <<'PY'
-import json
-import sys
-
-trace = json.loads(sys.argv[1])
-traces = trace.get("traces", [])
-if not traces:
-    print("  No traces returned")
-    sys.exit(0)
-
-t = traces[0]
-spans = t.get("spans", [])
-print(f"  Trace ID: {t.get('traceID', '?')}")
-print(f"  Spans: {len(spans)}")
-print(f"")
-print(f"  {'SERVICE':<20} {'OPERATION':<50} {'DURATION (ms)':<14}")
-print(f"  {'-'*20} {'-'*50} {'-'*14}")
-
-for s in spans:
-    tags = {t["key"]: t.get("value", "") for t in s.get("tags", [])}
-    svc = tags.get("service.name", "unknown")
-    op = s.get("operationName", "?")
-    start = int(s.get("startTime", 0))
-    end = int(s.get("endTime", 0))
-    dur = (end - start) / 1000.0  # ns → ms
-    print(f"  {svc:<20} {op:<50} {dur:>10.2f} ms")
+python3 - "$TRACE_ID" "$trace_json" <<'PY'
+import json, sys
+trace_id, payload = sys.argv[1], json.loads(sys.argv[2])
+services = set()
+def visit(value):
+    if isinstance(value, dict):
+        attrs = value.get("attributes")
+        if isinstance(attrs, list):
+            for attr in attrs:
+                if attr.get("key") == "service.name":
+                    services.add(str(attr.get("value", {}).get("stringValue", "")))
+        for child in value.values(): visit(child)
+    elif isinstance(value, list):
+        for child in value: visit(child)
+visit(payload)
+print(f"trace_id={trace_id} services={','.join(sorted(filter(None, services)))}")
 PY
-fi
 
-# Cleanup the debug pod
-kubectl delete pod "$DEBUG_POD" -n apollo-airlines-apps --wait=false >/dev/null 2>&1 || true
+booking_id=$(sed -n 's/.*"id":"\([^"]*\)".*/\1/p' <<<"$booking")
+[[ -n "$booking_id" ]] || fail "created booking response did not contain an id"
+step "Cancelling the passenger booking and restoring its seat"
+cancel_response=$(kubectl exec -n apollo-airlines-apps "$DEBUG_POD" -- curl -sS -w $'\n%{http_code}' \
+    -X DELETE -H "Authorization: Bearer $token" \
+    -H "X-Request-ID: $REQUEST_ID-cancel" \
+    "http://booking:8082/api/bookings/$booking_id")
+cancel_status=${cancel_response##*$'\n'}
+cancel_body=${cancel_response%$'\n'*}
+[[ "$cancel_status" == "200" ]] || fail "booking cancellation returned HTTP $cancel_status: $cancel_body"
 
-ok "trace test complete"
-echo ""
-echo "  Tip: open Grafana → Explore → Tempo and paste trace_id=$TRACE_ID"
-echo "  Tip: port-forward Grafana with: kubectl port-forward svc/grafana -n apollo-observability 3000:3000"
+seats_after_cancel=""
+for _ in $(seq 1 20); do
+    flight_after_cancel=$(kubectl exec -n apollo-airlines-apps "$DEBUG_POD" -- curl -fsS "http://flight:8081/api/flights/$chosen_flight_id")
+    seats_after_cancel=$(sed -n 's/.*"availableSeats":\([0-9][0-9]*\).*/\1/p' <<<"$flight_after_cancel")
+    [[ "$seats_after_cancel" == "$seats_before" ]] && break
+    sleep 1
+done
+[[ "$seats_after_cancel" == "$seats_before" ]] || fail "seat count was not restored after cancellation ($seats_before -> $seats_after_cancel)"
+
+ok "passenger booking and cancellation succeeded; one trace contains booking → identity → flight → notification"

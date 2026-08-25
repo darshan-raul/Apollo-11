@@ -1,0 +1,66 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+# Prod overlay — 3 replicas per service, pinned :v1.0.0 tag, and
+# PodDisruptionBudgets applied for booking + frontend to guarantee the
+# flagship service and UI survive voluntary disruptions.
+
+labels:
+  - includeSelectors: false
+    pairs:
+      environment: prod
+
+resources:
+  - ../base
+  - pdb.yaml
+
+patches:
+  - target:
+      group: autoscaling
+      version: v2
+      kind: HorizontalPodAutoscaler
+      name: search-hpa
+    patch: |-
+      - op: replace
+        path: /spec/minReplicas
+        value: 3
+      - op: replace
+        path: /spec/maxReplicas
+        value: 20
+      - op: replace
+        path: /spec/metrics/0/resource/target/averageUtilization
+        value: 60
+
+replicas:
+  - name: identity
+    count: 3
+  - name: flight
+    count: 3
+  - name: booking
+    count: 3
+  - name: search
+    count: 3
+  - name: notification
+    count: 3
+  - name: frontend
+    count: 3
+
+images:
+  - name: apollo11/identity
+    newName: ghcr.io/darshan-raul/apollo11/identity
+    newTag: v1.0.0
+  - name: apollo11/flight
+    newName: ghcr.io/darshan-raul/apollo11/flight
+    newTag: v1.0.0
+  - name: apollo11/booking
+    newName: ghcr.io/darshan-raul/apollo11/booking
+    newTag: v1.0.0
+  - name: apollo11/search
+    newName: ghcr.io/darshan-raul/apollo11/search
+    newTag: v1.0.0
+  - name: apollo11/notification
+    newName: ghcr.io/darshan-raul/apollo11/notification
+    newTag: v1.0.0
+  - name: apollo11/frontend
+    newName: ghcr.io/darshan-raul/apollo11/frontend
+    newTag: v1.0.0

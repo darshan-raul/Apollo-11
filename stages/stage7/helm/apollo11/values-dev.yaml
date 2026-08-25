@@ -3,7 +3,8 @@
 # Use as: helm upgrade --install apollo11 helm/apollo11 -f values-dev.yaml
 
 image:
-  tag: dev
+  # CI publishes :latest on main and immutable :sha-* tags.
+  tag: latest
 
 apps:
   identity:
@@ -25,8 +26,8 @@ pdb:
   enabled: false
 
 # Stage 7: cheaper autoscaling in dev. min=1 so we don't burn resources
-# on a single-node kind cluster. VPA is off in dev — it adds 3 pods to
-# the vpa-system namespace and on a single-node kind that's just noise.
+# on a local kind cluster. VPA is off in dev — its recommender/updater
+# controllers add resource cost without enough history to be useful.
 autoscaling:
   search:
     minReplicas: 1

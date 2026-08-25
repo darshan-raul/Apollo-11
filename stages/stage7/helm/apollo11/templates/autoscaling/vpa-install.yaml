@@ -1,13 +1,13 @@
 {{- /*
 Stage 7: VerticalPodAutoscaler install (bundled for offline-friendly installs).
 
-VPA is 3 components in the `vpa-system` namespace:
+Stage 7 installs two upstream controllers in `kube-system`:
   * recommender — observes metrics, computes recommendations
-  * updater     — mutates pod resources in place (we use Off mode so this is a no-op)
-  * admission-controller — mutates pod resources on creation (same — no-op in Off)
+  * updater     — observes update policy (a no-op for our Off-mode VPA)
 
-The bundled manifest is a concatenation of the 6 files from
-kubernetes/autoscaler v1.7.0 deploy/ directory.
+The admission controller is intentionally omitted: Off mode does not mutate
+pods, so a TLS webhook would add cost and failure modes without being used.
+The bundle is curated from kubernetes/autoscaler v1.7.0.
 
 Set `.Values.vpa.bundleInstall = false` to skip.
 */ -}}

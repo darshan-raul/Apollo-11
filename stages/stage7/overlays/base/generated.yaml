@@ -1,0 +1,3362 @@
+---
+# Source: apollo11/templates/config/priorityclass.yaml
+apiVersion: scheduling.k8s.io/v1
+kind: PriorityClass
+metadata:
+  name: apollo-airlines-app-critical
+  labels:
+    app.kubernetes.io/name: apollo11
+    app.kubernetes.io/instance: apollo11
+    app.kubernetes.io/version: "1.0.0"
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/part-of: apollo-airlines
+    hermes: managed
+value: 1e+06
+globalDefault: false
+description: "Apollo Airlines app-critical pods (booking, search). Scheduled before default-priority pods."
+---
+# Source: apollo11/templates/config/priorityclass.yaml
+apiVersion: scheduling.k8s.io/v1
+kind: PriorityClass
+metadata:
+  name: apollo-airlines-app-low
+  labels:
+    app.kubernetes.io/name: apollo11
+    app.kubernetes.io/instance: apollo11
+    app.kubernetes.io/version: "1.0.0"
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/part-of: apollo-airlines
+    hermes: managed
+value: -100000
+globalDefault: false
+description: "Apollo Airlines app-low pods (notification). Preempted under node pressure."
+
+---
+# Source: apollo11/templates/config/serviceaccount.yaml
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: identity
+  namespace: apollo-airlines-apps
+  labels:
+    app.kubernetes.io/name: apollo11
+    app.kubernetes.io/instance: apollo11
+    app.kubernetes.io/version: "1.0.0"
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/part-of: apollo-airlines
+    hermes: managed
+---
+# Source: apollo11/templates/config/serviceaccount.yaml
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: flight
+  namespace: apollo-airlines-apps
+  labels:
+    app.kubernetes.io/name: apollo11
+    app.kubernetes.io/instance: apollo11
+    app.kubernetes.io/version: "1.0.0"
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/part-of: apollo-airlines
+    hermes: managed
+---
+# Source: apollo11/templates/config/serviceaccount.yaml
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: booking
+  namespace: apollo-airlines-apps
+  labels:
+    app.kubernetes.io/name: apollo11
+    app.kubernetes.io/instance: apollo11
+    app.kubernetes.io/version: "1.0.0"
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/part-of: apollo-airlines
+    hermes: managed
+---
+# Source: apollo11/templates/config/serviceaccount.yaml
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: search
+  namespace: apollo-airlines-apps
+  labels:
+    app.kubernetes.io/name: apollo11
+    app.kubernetes.io/instance: apollo11
+    app.kubernetes.io/version: "1.0.0"
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/part-of: apollo-airlines
+    hermes: managed
+---
+# Source: apollo11/templates/config/serviceaccount.yaml
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: notification
+  namespace: apollo-airlines-apps
+  labels:
+    app.kubernetes.io/name: apollo11
+    app.kubernetes.io/instance: apollo11
+    app.kubernetes.io/version: "1.0.0"
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/part-of: apollo-airlines
+    hermes: managed
+---
+# Source: apollo11/templates/config/serviceaccount.yaml
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: identity-db
+  namespace: apollo-airlines-apps
+  labels:
+    app.kubernetes.io/name: apollo11
+    app.kubernetes.io/instance: apollo11
+    app.kubernetes.io/version: "1.0.0"
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/part-of: apollo-airlines
+    hermes: managed
+---
+# Source: apollo11/templates/config/serviceaccount.yaml
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: flight-db
+  namespace: apollo-airlines-apps
+  labels:
+    app.kubernetes.io/name: apollo11
+    app.kubernetes.io/instance: apollo11
+    app.kubernetes.io/version: "1.0.0"
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/part-of: apollo-airlines
+    hermes: managed
+---
+# Source: apollo11/templates/config/serviceaccount.yaml
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: booking-db
+  namespace: apollo-airlines-apps
+  labels:
+    app.kubernetes.io/name: apollo11
+    app.kubernetes.io/instance: apollo11
+    app.kubernetes.io/version: "1.0.0"
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/part-of: apollo-airlines
+    hermes: managed
+---
+# Source: apollo11/templates/config/serviceaccount.yaml
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: redis
+  namespace: apollo-airlines-apps
+  labels:
+    app.kubernetes.io/name: apollo11
+    app.kubernetes.io/instance: apollo11
+    app.kubernetes.io/version: "1.0.0"
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/part-of: apollo-airlines
+    hermes: managed
+---
+# Source: apollo11/templates/config/serviceaccount.yaml
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: init-identity-db
+  namespace: apollo-airlines-apps
+  labels:
+    app.kubernetes.io/name: apollo11
+    app.kubernetes.io/instance: apollo11
+    app.kubernetes.io/version: "1.0.0"
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/part-of: apollo-airlines
+    hermes: managed
+---
+# Source: apollo11/templates/config/serviceaccount.yaml
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: init-flight-db
+  namespace: apollo-airlines-apps
+  labels:
+    app.kubernetes.io/name: apollo11
+    app.kubernetes.io/instance: apollo11
+    app.kubernetes.io/version: "1.0.0"
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/part-of: apollo-airlines
+    hermes: managed
+---
+# Source: apollo11/templates/config/serviceaccount.yaml
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: init-booking-db
+  namespace: apollo-airlines-apps
+  labels:
+    app.kubernetes.io/name: apollo11
+    app.kubernetes.io/instance: apollo11
+    app.kubernetes.io/version: "1.0.0"
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/part-of: apollo-airlines
+    hermes: managed
+---
+# Source: apollo11/templates/config/serviceaccount.yaml
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: frontend
+  namespace: apollo-airlines-ui
+  labels:
+    app.kubernetes.io/name: apollo11
+    app.kubernetes.io/instance: apollo11
+    app.kubernetes.io/version: "1.0.0"
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/part-of: apollo-airlines
+    hermes: managed
+
+---
+# Source: apollo11/templates/observability/serviceaccount.yaml
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: observability-stack
+  namespace: apollo-observability
+  labels:
+    app.kubernetes.io/name: apollo-observability
+    app.kubernetes.io/part-of: apollo-airlines
+---
+# Source: apollo11/templates/config/secrets.yaml
+apiVersion: v1
+kind: Secret
+metadata:
+  name: apollo-airlines-secrets
+  namespace: apollo-airlines-apps
+  labels:
+    app.kubernetes.io/name: apollo11
+    app.kubernetes.io/instance: apollo11
+    app.kubernetes.io/version: "1.0.0"
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/part-of: apollo-airlines
+    hermes: managed
+type: Opaque
+stringData:
+  POSTGRES_PASSWORD: "postgres"
+  JWT_SECRET:        "apollo-airlines-dev-secret-change-in-production"
+---
+# Source: apollo11/templates/config/secrets.yaml
+# Kept for symmetry — if future ui-ns workloads need the JWT secret too,
+# this is where they'd pull it from.
+apiVersion: v1
+kind: Secret
+metadata:
+  name: apollo-airlines-secrets
+  namespace: apollo-airlines-ui
+  labels:
+    app.kubernetes.io/name: apollo11
+    app.kubernetes.io/instance: apollo11
+    app.kubernetes.io/version: "1.0.0"
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/part-of: apollo-airlines
+    hermes: managed
+type: Opaque
+stringData:
+  JWT_SECRET: "apollo-airlines-dev-secret-change-in-production"
+
+---
+# Source: apollo11/templates/observability/grafana/deployment.yaml
+apiVersion: v1
+kind: Secret
+metadata:
+  name: grafana-admin
+  namespace: apollo-observability
+type: Opaque
+stringData:
+  username: "admin"
+  password: "apollo-admin"
+
+---
+# Source: apollo11/templates/config/configmap.yaml
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: apollo-airlines-config
+  namespace: apollo-airlines-apps
+  labels:
+    app.kubernetes.io/name: apollo11
+    app.kubernetes.io/instance: apollo11
+    app.kubernetes.io/version: "1.0.0"
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/part-of: apollo-airlines
+    hermes: managed
+data:
+  NS_APPS: "apollo-airlines-apps"
+  NS_UI:   "apollo-airlines-ui"
+---
+# Source: apollo11/templates/config/configmap.yaml
+# UI namespace: keep the VITE_* URLs in a ConfigMap so they're visible to
+# anyone inspecting the cluster (and so a tool can rebuild the image with
+# the right values without hardcoding them in the Dockerfile).
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: apollo-airlines-config
+  namespace: apollo-airlines-ui
+  labels:
+    app.kubernetes.io/name: apollo11
+    app.kubernetes.io/instance: apollo11
+    app.kubernetes.io/version: "1.0.0"
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/part-of: apollo-airlines
+    hermes: managed
+data:
+  VITE_IDENTITY_URL: "http://identity.apollo.local"
+  VITE_FLIGHT_URL:   "http://flight.apollo.local"
+  VITE_BOOKING_URL:  "http://booking.apollo.local"
+  VITE_SEARCH_URL:   "http://search.apollo.local"
+
+---
+# Source: apollo11/templates/infra/postgres.yaml
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: identity-db-init-script
+  namespace: apollo-airlines-apps
+  labels:
+    app.kubernetes.io/name: apollo11
+    app.kubernetes.io/instance: apollo11
+    app.kubernetes.io/version: "1.0.0"
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/part-of: apollo-airlines
+    hermes: managed
+data:
+  init.sql: |-
+    CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
+
+    CREATE TABLE IF NOT EXISTS users (
+        id               UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        email            VARCHAR(255) UNIQUE NOT NULL,
+        password_hash    VARCHAR(255) NOT NULL,
+        first_name       VARCHAR(100),
+        last_name        VARCHAR(100),
+        passport_number  VARCHAR(50),
+        loyalty_tier     VARCHAR(20) DEFAULT 'STANDARD',
+        role             VARCHAR(20) DEFAULT 'PASSENGER',
+        is_active        BOOLEAN DEFAULT TRUE,
+        created_at       TIMESTAMP DEFAULT NOW(),
+        updated_at       TIMESTAMP DEFAULT NOW()
+    );
+---
+# Source: apollo11/templates/infra/postgres.yaml
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: identity-db-seed
+  namespace: apollo-airlines-apps
+  labels:
+    app.kubernetes.io/name: apollo11
+    app.kubernetes.io/instance: apollo11
+    app.kubernetes.io/version: "1.0.0"
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/part-of: apollo-airlines
+    hermes: managed
+data:
+  seed.sql: |-
+    -- Identity seed: 2 users (admin, passenger).
+    INSERT INTO users (id, email, password_hash, first_name, last_name, passport_number, loyalty_tier, role, is_active)
+    VALUES
+        ('a1b2c3d4-e5f6-7890-abcd-ef1234567890', 'admin@apolloairlines.com', '$2b$12$kflBUCuS6Lagf1HRHUX8c.R68u93qgg7CRQ9exm8/x5IhA3s9eT3i', 'Admin', 'User', 'ADMIN123', 'PLATINUM', 'ADMIN', true),
+        ('b2c3d4e5-f6a7-8901-bcde-f12345678901', 'passenger@apolloairlines.com', '$2b$12$YK9qpQ28hFUSICvWuiLm5OLjiibWe.zXXDsLiHl7YNrT6adahZ8Gu', 'Passenger', 'User', 'PASS123', 'STANDARD', 'PASSENGER', true)
+    ON CONFLICT (id) DO NOTHING;
+---
+# Source: apollo11/templates/infra/postgres.yaml
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: flight-db-init-script
+  namespace: apollo-airlines-apps
+  labels:
+    app.kubernetes.io/name: apollo11
+    app.kubernetes.io/instance: apollo11
+    app.kubernetes.io/version: "1.0.0"
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/part-of: apollo-airlines
+    hermes: managed
+data:
+  init.sql: |-
+    CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
+
+    CREATE TABLE IF NOT EXISTS airports (
+        id        UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        code      VARCHAR(3) UNIQUE NOT NULL,
+        name      VARCHAR(255) NOT NULL,
+        city      VARCHAR(100) NOT NULL,
+        country   VARCHAR(100) NOT NULL,
+        created_at TIMESTAMP DEFAULT NOW()
+    );
+
+    CREATE TABLE IF NOT EXISTS flights (
+        id                UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        flight_number     VARCHAR(10) NOT NULL,
+        origin            VARCHAR(3)  NOT NULL REFERENCES airports(code),
+        destination       VARCHAR(3)  NOT NULL REFERENCES airports(code),
+        departure_time    TIMESTAMP   NOT NULL,
+        arrival_time      TIMESTAMP   NOT NULL,
+        total_capacity    INTEGER     NOT NULL,
+        available_seats   INTEGER     NOT NULL,
+        status            VARCHAR(20) DEFAULT 'SCHEDULED',
+        created_at        TIMESTAMP   DEFAULT NOW(),
+        updated_at        TIMESTAMP   DEFAULT NOW(),
+        UNIQUE (flight_number, departure_time)
+    );
+---
+# Source: apollo11/templates/infra/postgres.yaml
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: flight-db-seed
+  namespace: apollo-airlines-apps
+  labels:
+    app.kubernetes.io/name: apollo11
+    app.kubernetes.io/instance: apollo11
+    app.kubernetes.io/version: "1.0.0"
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/part-of: apollo-airlines
+    hermes: managed
+data:
+  seed.sql: |-
+    INSERT INTO airports (id, code, name, city, country) VALUES
+        ('11111111-1111-1111-1111-111111111111', 'BOM', 'Chhatrapati Shivaji Maharaj International', 'Mumbai', 'India'),
+        ('22222222-2222-2222-2222-222222222222', 'DEL', 'Indira Gandhi International', 'New Delhi', 'India'),
+        ('33333333-3333-3333-1111-111111111111'::uuid, 'SIN', 'Changi Airport', 'Singapore', 'Singapore'),
+        ('44444444-4444-4444-1111-111111111111'::uuid, 'DXB', 'Dubai International', 'Dubai', 'UAE'),
+        ('55555555-5555-5555-1111-111111111111'::uuid, 'LHR', 'Heathrow Airport', 'London', 'UK'),
+        ('66666666-6666-6666-1111-111111111111'::uuid, 'JFK', 'John F. Kennedy International', 'New York', 'USA')
+    ON CONFLICT (code) DO NOTHING;
+
+    INSERT INTO flights (flight_number, origin, destination, departure_time, arrival_time, total_capacity, available_seats, status)
+    SELECT
+        f.flight_number, f.origin, f.destination,
+        (CURRENT_DATE + n * INTERVAL '1 day' + f.dep_time::time)::timestamp,
+        (CURRENT_DATE + n * INTERVAL '1 day' + f.arr_time::time)::timestamp,
+        f.total_capacity, f.total_capacity, 'SCHEDULED'
+    FROM (VALUES
+        ('AA101', 'BOM', 'SIN', '08:00:00'::time, '14:30:00'::time, 180),
+        ('AA102', 'SIN', 'BOM', '20:00:00'::time, '23:30:00'::time, 180),
+        ('AA201', 'DEL', 'DXB', '09:30:00'::time, '13:00:00'::time, 220),
+        ('AA202', 'DXB', 'DEL', '22:00:00'::time, '02:30:00'::time, 220),
+        ('AA301', 'BOM', 'LHR', '01:00:00'::time, '10:00:00'::time, 300),
+        ('AA401', 'DEL', 'JFK', '02:00:00'::time, '14:00:00'::time, 280)
+    ) AS f(flight_number, origin, destination, dep_time, arr_time, total_capacity)
+    CROSS JOIN generate_series(0, 30) AS n;
+---
+# Source: apollo11/templates/infra/postgres.yaml
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: booking-db-init-script
+  namespace: apollo-airlines-apps
+  labels:
+    app.kubernetes.io/name: apollo11
+    app.kubernetes.io/instance: apollo11
+    app.kubernetes.io/version: "1.0.0"
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/part-of: apollo-airlines
+    hermes: managed
+data:
+  init.sql: |-
+    CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
+
+    CREATE TABLE IF NOT EXISTS bookings (
+        id                UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        booking_reference VARCHAR(20) UNIQUE NOT NULL,
+        user_id           UUID NOT NULL,
+        flight_id         UUID NOT NULL,
+        seat_number       VARCHAR(10),
+        status            VARCHAR(20) DEFAULT 'CONFIRMED',
+        created_at        TIMESTAMP DEFAULT NOW(),
+        updated_at        TIMESTAMP DEFAULT NOW()
+    );
+---
+# Source: apollo11/templates/infra/postgres.yaml
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: booking-db-seed
+  namespace: apollo-airlines-apps
+  labels:
+    app.kubernetes.io/name: apollo11
+    app.kubernetes.io/instance: apollo11
+    app.kubernetes.io/version: "1.0.0"
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/part-of: apollo-airlines
+    hermes: managed
+data:
+  seed.sql: |-
+    -- Bookings are created at runtime; seed is empty but kept for symmetry.
+    SELECT 1;
+---
+# Source: apollo11/templates/observability/grafana/dashboard-booking.yaml
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: grafana-dashboard-booking
+  namespace: apollo-observability
+  labels:
+    app.kubernetes.io/name: grafana
+    app.kubernetes.io/part-of: apollo-airlines
+    grafana_dashboard: "1"
+data:
+  dashboard.json: '{"annotations":{"list":[]},"editable":true,"fiscalYearStartMonth":0,"graphTooltip":1,"id":null,"uid":"apollo-booking","title":"Booking Service","tags":["apollo"],"timezone":"browser","schemaVersion":39,"version":1,"refresh":"30s","time":{"from":"now-1h","to":"now"},"templating":{"list":[]},"panels":[{"id":1,"type":"stat","title":"Booking p50 (ms)","datasource":{"type":"prometheus","uid":"prometheus"},"gridPos":{"h":4,"w":6,"x":0,"y":0},"targets":[{"datasource":{"type":"prometheus","uid":"prometheus"},"expr":"histogram_quantile(0.5, sum by (le) (rate(http_request_duration_ms_bucket{service=\"booking\"}[5m])))","refId":"A"}],"options":{"reduceOptions":{"calcs":["lastNotNull"]},"colorMode":"value","graphMode":"area"},"fieldConfig":{"defaults":{"thresholds":{"mode":"absolute","steps":[{"color":"green","value":null},{"color":"yellow","value":80},{"color":"red","value":95}]},"unit":"ms"}}},{"id":2,"type":"stat","title":"Booking p95 (ms)","datasource":{"type":"prometheus","uid":"prometheus"},"gridPos":{"h":4,"w":6,"x":12,"y":0},"targets":[{"datasource":{"type":"prometheus","uid":"prometheus"},"expr":"histogram_quantile(0.95, sum by (le) (rate(http_request_duration_ms_bucket{service=\"booking\"}[5m])))","refId":"A"}],"options":{"reduceOptions":{"calcs":["lastNotNull"]},"colorMode":"value","graphMode":"area"},"fieldConfig":{"defaults":{"thresholds":{"mode":"absolute","steps":[{"color":"green","value":null},{"color":"yellow","value":80},{"color":"red","value":95}]},"unit":"ms"}}},{"id":3,"type":"stat","title":"Booking p99 (ms)","datasource":{"type":"prometheus","uid":"prometheus"},"gridPos":{"h":4,"w":6,"x":0,"y":4},"targets":[{"datasource":{"type":"prometheus","uid":"prometheus"},"expr":"histogram_quantile(0.99, sum by (le) (rate(http_request_duration_ms_bucket{service=\"booking\"}[5m])))","refId":"A"}],"options":{"reduceOptions":{"calcs":["lastNotNull"]},"colorMode":"value","graphMode":"area"},"fieldConfig":{"defaults":{"thresholds":{"mode":"absolute","steps":[{"color":"green","value":null},{"color":"yellow","value":80},{"color":"red","value":95}]},"unit":"ms"}}},{"id":4,"type":"stat","title":"Booking Error Rate","datasource":{"type":"prometheus","uid":"prometheus"},"gridPos":{"h":4,"w":6,"x":12,"y":4},"targets":[{"datasource":{"type":"prometheus","uid":"prometheus"},"expr":"sum(rate(http_requests_total{service=\"booking\",status=~\"5..\"}[5m])) / sum(rate(http_requests_total{service=\"booking\"}[5m]))","refId":"A"}],"options":{"reduceOptions":{"calcs":["lastNotNull"]},"colorMode":"value","graphMode":"area"},"fieldConfig":{"defaults":{"thresholds":{"mode":"absolute","steps":[{"color":"green","value":null},{"color":"yellow","value":80},{"color":"red","value":95}]},"unit":"percentunit"}}},{"id":5,"type":"timeseries","title":"Booking latency percentiles","datasource":{"type":"prometheus","uid":"prometheus"},"gridPos":{"h":8,"w":12,"x":0,"y":8},"targets":[{"datasource":{"type":"prometheus","uid":"prometheus"},"expr":"histogram_quantile(0.5, sum by (le) (rate(http_request_duration_ms_bucket{service=\"booking\"}[5m])))","refId":"A"}],"fieldConfig":{"defaults":{"unit":"ms","custom":{"lineWidth":2,"fillOpacity":10,"showPoints":"never"}}},"options":{"legend":{"displayMode":"table","placement":"bottom","showLegend":true},"tooltip":{"mode":"multi","sort":"desc"}}},{"id":6,"type":"timeseries","title":"Booking requests by status code","datasource":{"type":"prometheus","uid":"prometheus"},"gridPos":{"h":8,"w":12,"x":12,"y":8},"targets":[{"datasource":{"type":"prometheus","uid":"prometheus"},"expr":"sum by (status) (rate(http_requests_total{service=\"booking\"}[5m]))","refId":"A"}],"fieldConfig":{"defaults":{"unit":"short","custom":{"lineWidth":2,"fillOpacity":10,"showPoints":"never"}}},"options":{"legend":{"displayMode":"table","placement":"bottom","showLegend":true},"tooltip":{"mode":"multi","sort":"desc"}}}],"description":"Detailed latency and error metrics for the booking service."}'
+
+---
+# Source: apollo11/templates/observability/grafana/dashboard-errors.yaml
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: grafana-dashboard-errors
+  namespace: apollo-observability
+  labels:
+    app.kubernetes.io/name: grafana
+    app.kubernetes.io/part-of: apollo-airlines
+    grafana_dashboard: "1"
+data:
+  dashboard.json: '{"annotations":{"list":[]},"editable":true,"fiscalYearStartMonth":0,"graphTooltip":1,"id":null,"uid":"apollo-errors","title":"Service Errors","tags":["apollo"],"timezone":"browser","schemaVersion":39,"version":1,"refresh":"30s","time":{"from":"now-1h","to":"now"},"templating":{"list":[]},"panels":[{"id":1,"type":"timeseries","title":"5xx rate by service","datasource":{"type":"prometheus","uid":"prometheus"},"gridPos":{"h":8,"w":24,"x":0,"y":0},"targets":[{"datasource":{"type":"prometheus","uid":"prometheus"},"expr":"sum by (service) (rate(http_requests_total{status=~\"5..\"}[5m]))","refId":"A"}],"fieldConfig":{"defaults":{"unit":"short","custom":{"lineWidth":2,"fillOpacity":10,"showPoints":"never"}}},"options":{"legend":{"displayMode":"table","placement":"bottom","showLegend":true},"tooltip":{"mode":"multi","sort":"desc"}}},{"id":2,"type":"timeseries","title":"4xx rate by service","datasource":{"type":"prometheus","uid":"prometheus"},"gridPos":{"h":8,"w":24,"x":0,"y":8},"targets":[{"datasource":{"type":"prometheus","uid":"prometheus"},"expr":"sum by (service) (rate(http_requests_total{status=~\"4..\"}[5m]))","refId":"A"}],"fieldConfig":{"defaults":{"unit":"short","custom":{"lineWidth":2,"fillOpacity":10,"showPoints":"never"}}},"options":{"legend":{"displayMode":"table","placement":"bottom","showLegend":true},"tooltip":{"mode":"multi","sort":"desc"}}},{"id":3,"type":"timeseries","title":"Error rate by service (%)","datasource":{"type":"prometheus","uid":"prometheus"},"gridPos":{"h":8,"w":24,"x":0,"y":16},"targets":[{"datasource":{"type":"prometheus","uid":"prometheus"},"expr":"sum by (service) (rate(http_requests_total{status=~\"5..\"}[5m])) / sum by (service) (rate(http_requests_total[5m]))","refId":"A"}],"fieldConfig":{"defaults":{"unit":"percentunit","custom":{"lineWidth":2,"fillOpacity":10,"showPoints":"never"}}},"options":{"legend":{"displayMode":"table","placement":"bottom","showLegend":true},"tooltip":{"mode":"multi","sort":"desc"}}}],"description":"Error rate and status code distribution per service."}'
+
+---
+# Source: apollo11/templates/observability/grafana/dashboard-overview.yaml
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: grafana-dashboard-overview
+  namespace: apollo-observability
+  labels:
+    app.kubernetes.io/name: grafana
+    app.kubernetes.io/part-of: apollo-airlines
+    grafana_dashboard: "1"
+data:
+  dashboard.json: '{"editable":true,"uid":"apollo-overview","title":"Apollo Overview","tags":["apollo"],"timezone":"browser","schemaVersion":39,"version":1,"refresh":"30s","time":{"from":"now-1h","to":"now"},"panels":[{"id":1,"type":"stat","title":"Backend targets up","datasource":{"type":"prometheus","uid":"prometheus"},"gridPos":{"h":4,"w":8,"x":0,"y":0},"targets":[{"expr":"count(up{namespace=\"apollo-airlines-apps\"} == 1)","refId":"A"}]},{"id":2,"type":"timeseries","title":"Requests/sec by service","datasource":{"type":"prometheus","uid":"prometheus"},"gridPos":{"h":8,"w":12,"x":0,"y":4},"targets":[{"expr":"sum by (service) (rate(http_requests_total[5m]))","refId":"A"}]},{"id":3,"type":"timeseries","title":"p95 latency by service","datasource":{"type":"prometheus","uid":"prometheus"},"gridPos":{"h":8,"w":12,"x":12,"y":4},"targets":[{"expr":"histogram_quantile(0.95, sum by (le, service) (rate(http_request_duration_ms_bucket[5m])))","refId":"A"}]}]}'
+
+---
+# Source: apollo11/templates/observability/grafana/dashboard-saturation.yaml
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: grafana-dashboard-saturation
+  namespace: apollo-observability
+  labels: { app.kubernetes.io/name: grafana, app.kubernetes.io/part-of: apollo-airlines }
+data:
+  dashboard.json: '{"editable":true,"uid":"apollo-runtime","title":"Service Runtime","tags":["apollo"],"timezone":"browser","schemaVersion":39,"version":1,"refresh":"30s","time":{"from":"now-1h","to":"now"},"panels":[{"id":1,"type":"timeseries","title":"Process CPU by target","datasource":{"type":"prometheus","uid":"prometheus"},"gridPos":{"h":10,"w":12,"x":0,"y":0},"targets":[{"expr":"sum by (job) (rate(process_cpu_seconds_total[5m]))","refId":"A"}]},{"id":2,"type":"timeseries","title":"Resident memory by target","datasource":{"type":"prometheus","uid":"prometheus"},"gridPos":{"h":10,"w":12,"x":12,"y":0},"targets":[{"expr":"sum by (job) (process_resident_memory_bytes)","refId":"A"}]}]}'
+
+---
+# Source: apollo11/templates/observability/grafana/dashboard-trace-viewer.yaml
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: grafana-dashboard-trace-viewer
+  namespace: apollo-observability
+  labels:
+    app.kubernetes.io/name: grafana
+    app.kubernetes.io/part-of: apollo-airlines
+    grafana_dashboard: "1"
+data:
+  dashboard.json: '{"annotations":{"list":[]},"editable":true,"fiscalYearStartMonth":0,"graphTooltip":1,"id":null,"uid":"apollo-trace-viewer","title":"Trace Viewer","tags":["apollo"],"timezone":"browser","schemaVersion":39,"version":1,"refresh":"30s","time":{"from":"now-1h","to":"now"},"templating":{"list":[]},"panels":[{"id":1,"type":"traces","title":"Recent traces (booking service)","datasource":{"type":"tempo","uid":"tempo"},"gridPos":{"h":16,"w":24,"x":0,"y":0},"targets":[{"datasource":{"type":"tempo","uid":"tempo"},"query":"{ service.name = \"booking\" }","queryType":"traceql","refId":"A"}],"options":{"showTraceId":true}}],"description":"Browse Tempo traces by service and operation."}'
+
+---
+# Source: apollo11/templates/observability/grafana/datasources.yaml
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: grafana-datasources
+  namespace: apollo-observability
+  labels:
+    app.kubernetes.io/name: grafana
+    app.kubernetes.io/part-of: apollo-airlines
+data:
+  # Grafana's "unified alerting" reads from this file. Stage 8 will wire
+  # Slack/PD contact points; for now we just declare the contact point as
+  # an internal webhook (no-op).
+  alerting.yaml: |
+    apiVersion: 1
+    groups:
+      - orgId: 1
+        name: apollo-alerts
+        folder: Apollo
+        interval: 1m
+        rules:
+          - uid: apollo-booking-p95
+            title: Apollo booking p95 latency
+            condition: A
+            data:
+              - refId: A
+                datasourceUid: prometheus
+                relativeTimeRange:
+                  from: 600
+                  to: 0
+                model:
+                  expr: histogram_quantile(0.95, sum by (le) (rate(http_request_duration_ms_bucket{service="booking"}[5m])))
+                  intervalMs: 1000
+                  maxDataPoints: 43200
+                  refId: A
+            noDataState: NoData
+            execErrState: Alerting
+            for: 5m
+            annotations:
+              summary: Booking p95 latency over threshold
+          - uid: apollo-error-rate
+            title: Apollo 5xx error rate
+            condition: A
+            data:
+              - refId: A
+                datasourceUid: prometheus
+                relativeTimeRange:
+                  from: 600
+                  to: 0
+                model:
+                  expr: sum by (service) (rate(http_requests_total{status=~"5.."}[5m])) / sum by (service) (rate(http_requests_total[5m]))
+                  intervalMs: 1000
+                  maxDataPoints: 43200
+                  refId: A
+            noDataState: NoData
+            execErrState: Alerting
+            for: 5m
+            annotations:
+              summary: Service 5xx rate elevated
+  datasources.yaml: |
+    apiVersion: 1
+    datasources:
+      - name: Prometheus
+        uid: prometheus
+        type: prometheus
+        access: proxy
+        url: http://prometheus:9090
+        isDefault: true
+        editable: true
+        jsonData:
+          timeInterval: 30s
+          manageAlerts: true
+      - name: Loki
+        uid: loki
+        type: loki
+        access: proxy
+        url: http://loki:3100
+        editable: true
+        jsonData:
+          maxLines: 1000
+      - name: Tempo
+        uid: tempo
+        type: tempo
+        access: proxy
+        url: http://tempo:3100
+        editable: true
+        jsonData:
+          tracesToLogsV2: {}
+          serviceMap:
+            datasourceUid: prometheus
+          nodeGraph:
+            enabled: true
+          search:
+            hide: false
+---
+# Source: apollo11/templates/observability/grafana/datasources.yaml
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: grafana-dashboard-provider
+  namespace: apollo-observability
+data:
+  dashboards.yaml: |
+    apiVersion: 1
+    providers:
+      - name: Apollo11
+        folder: Apollo11
+        type: file
+        disableDeletion: false
+        editable: true
+        options:
+          path: /var/lib/grafana/dashboards
+
+---
+# Source: apollo11/templates/observability/loki/alloy.yaml
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: alloy-config
+  namespace: apollo-observability
+data:
+  config.alloy: |
+    discovery.kubernetes "pods" {
+      role = "pod"
+      selectors {
+        role  = "pod"
+        field = "spec.nodeName=" + sys.env("NODE_NAME")
+      }
+    }
+
+    discovery.relabel "pod_logs" {
+      targets = discovery.kubernetes.pods.targets
+      rule {
+        source_labels = ["__meta_kubernetes_namespace"]
+        target_label  = "namespace"
+      }
+      rule {
+        source_labels = ["__meta_kubernetes_pod_label_app"]
+        target_label  = "service"
+      }
+      rule {
+        source_labels = ["__meta_kubernetes_pod_name"]
+        target_label  = "pod"
+      }
+      rule {
+        source_labels = ["__meta_kubernetes_pod_container_name"]
+        target_label  = "container"
+      }
+    }
+
+    loki.source.kubernetes "pods" {
+      targets    = discovery.relabel.pod_logs.output
+      forward_to = [loki.write.local.receiver]
+    }
+
+    loki.write "local" {
+      endpoint {
+        url = "http://loki.apollo-observability.svc.cluster.local:3100/loki/api/v1/push"
+      }
+    }
+---
+# Source: apollo11/templates/observability/loki/config.yaml
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: loki-config
+  namespace: apollo-observability
+  labels:
+    app.kubernetes.io/name: loki
+    app.kubernetes.io/part-of: apollo-airlines
+data:
+  loki.yaml: |
+    auth_enabled: false
+
+    server:
+      http_listen_address: 0.0.0.0
+      http_listen_port: 3100
+      log_level: info
+      grpc_listen_port: 9096
+
+    common:
+      path_prefix: /var/loki
+      storage:
+        filesystem:
+          chunks_directory: /var/loki/chunks
+          rules_directory: /var/loki/rules
+      replication_factor: 1
+      ring:
+        kvstore:
+          store: inmemory
+
+    schema_config:
+      configs:
+        - from: 2024-01-01
+          store: tsdb
+          object_store: filesystem
+          schema: v13
+          index:
+            prefix: index_
+            period: 24h
+
+    limits_config:
+      retention_period: 168h
+      ingestion_rate_mb: 16
+      ingestion_burst_size_mb: 24
+      reject_old_samples: true
+      reject_old_samples_max_age: 168h
+      max_query_parallelism: 32
+      max_streams_per_user: 0
+
+    query_range:
+      results_cache:
+        cache:
+          embedded_cache:
+            enabled: true
+            max_size_mb: 100
+
+    analytics:
+      reporting_enabled: false
+
+---
+# Source: apollo11/templates/observability/otel-collector/config.yaml
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: otel-collector-config
+  namespace: apollo-observability
+data:
+  relay.yaml: |
+    receivers:
+      otlp:
+        protocols:
+          grpc: { endpoint: 0.0.0.0:4317 }
+          http: { endpoint: 0.0.0.0:4318 }
+    processors:
+      memory_limiter:
+        check_interval: 1s
+        limit_percentage: 75
+        spike_limit_percentage: 20
+      batch:
+        timeout: 2s
+    exporters:
+      otlp/tempo:
+        endpoint: tempo.apollo-observability.svc.cluster.local:4317
+        tls: { insecure: true }
+      debug:
+        verbosity: basic
+    extensions:
+      health_check: { endpoint: 0.0.0.0:13133 }
+    service:
+      extensions: [health_check]
+      pipelines:
+        traces:
+          receivers: [otlp]
+          processors: [memory_limiter, batch]
+          exporters: [otlp/tempo]
+        metrics:
+          receivers: [otlp]
+          processors: [memory_limiter, batch]
+          exporters: [debug]
+
+---
+# Source: apollo11/templates/observability/tempo/config.yaml
+# Tempo single-binary configuration. Designed for a small cluster (kind).
+#
+# Storage: filesystem-backed. The PVC is a 5Gi local-path volume; on a
+# real cluster you'd swap this for S3/GCS/Azure Blob.
+#
+# Receivers:
+#   - otlp:  standard OTLP gRPC + HTTP (push from the OTEL Collector)
+#   - jaeger:  support for legacy Jaeger clients (thrift over HTTP)
+#
+# In-memory trace cache:  100k traces, 1h TTL — small but fits dev.
+#
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: tempo-config
+  namespace: apollo-observability
+  labels:
+    app.kubernetes.io/name: tempo
+    app.kubernetes.io/part-of: apollo-airlines
+data:
+  tempo.yaml: |
+    server:
+      http_listen_address: 0.0.0.0
+      http_listen_port: 3100
+
+    distributor:
+      receivers:
+        otlp:
+          protocols:
+            grpc:
+              endpoint: 0.0.0.0:4317
+            http:
+              endpoint: 0.0.0.0:4318
+        jaeger:
+          protocols:
+            thrift_http:
+              endpoint: 0.0.0.0:14268
+
+    ingester:
+      trace_idle_period: 10s
+      max_block_duration: 5m
+
+    compactor:
+      compaction:
+        block_retention: 48h
+
+    storage:
+      trace:
+        backend: local
+        wal:
+          path: /var/tempo/wal
+        local:
+          path: /var/tempo/blocks
+        pool:
+          max_workers: 100
+
+---
+# Source: apollo11/templates/observability/grafana/deployment.yaml
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: grafana-data
+  namespace: apollo-observability
+  labels:
+    app.kubernetes.io/name: grafana
+spec:
+  accessModes: [ReadWriteOnce]
+  resources:
+    requests:
+      storage: 1Gi
+---
+# Source: apollo11/templates/observability/loki/deployment.yaml
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: loki-data
+  namespace: apollo-observability
+spec:
+  accessModes: [ReadWriteOnce]
+  resources:
+    requests:
+      storage: 1Gi
+---
+# Source: apollo11/templates/observability/tempo/deployment.yaml
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: tempo-data
+  namespace: apollo-observability
+  labels:
+    app.kubernetes.io/name: tempo
+spec:
+  accessModes: [ReadWriteOnce]
+  resources:
+    requests:
+      storage: 1Gi
+---
+# Source: apollo11/templates/observability/serviceaccount.yaml
+# ClusterRole: the observability stack reads service endpoints, pods,
+# configmaps across all namespaces for the Prometheus operator's ServiceMonitor
+# discovery. We do NOT grant write or cluster-wide admin rights.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: apollo-observability
+  labels:
+    app.kubernetes.io/part-of: apollo-airlines
+rules:
+  - apiGroups: [""]
+    resources: [services, endpoints, pods, configmaps, namespaces]
+    verbs: [get, list, watch]
+  - apiGroups: ["apps"]
+    resources: [deployments, statefulsets, daemonsets]
+    verbs: [get, list, watch]
+  - apiGroups: ["extensions", "networking.k8s.io"]
+    resources: [ingresses]
+    verbs: [get, list, watch]
+  # ServiceMonitors + PodMonitors are how Prometheus discovers targets.
+  - apiGroups: ["monitoring.coreos.com"]
+    resources: [servicemonitors, podmonitors, prometheusrules]
+    verbs: [get, list, watch]
+  - nonResourceURLs: ["/metrics", "/metrics/"]
+    verbs: [get]
+---
+# Source: apollo11/templates/observability/serviceaccount.yaml
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: apollo-observability
+  labels:
+    app.kubernetes.io/part-of: apollo-airlines
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: apollo-observability
+subjects:
+  - kind: ServiceAccount
+    name: observability-stack
+    namespace: apollo-observability
+
+---
+# Source: apollo11/templates/apps/booking.yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: booking
+  namespace: apollo-airlines-apps
+  labels:
+    app.kubernetes.io/name: apollo11
+    app.kubernetes.io/instance: apollo11
+    app.kubernetes.io/version: "1.0.0"
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/part-of: apollo-airlines
+    hermes: managed
+    app: booking
+spec:
+  type: ClusterIP
+  selector:
+    app: booking
+  ports:
+    - name: http
+      port: 8082
+      targetPort: 8082
+      protocol: TCP
+---
+# Source: apollo11/templates/apps/flight.yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: flight
+  namespace: apollo-airlines-apps
+  labels:
+    app.kubernetes.io/name: apollo11
+    app.kubernetes.io/instance: apollo11
+    app.kubernetes.io/version: "1.0.0"
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/part-of: apollo-airlines
+    hermes: managed
+    app: flight
+spec:
+  type: ClusterIP
+  selector:
+    app: flight
+  ports:
+    - name: http
+      port: 8081
+      targetPort: 8081
+      protocol: TCP
+---
+# Source: apollo11/templates/apps/identity.yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: identity
+  namespace: apollo-airlines-apps
+  labels:
+    app.kubernetes.io/name: apollo11
+    app.kubernetes.io/instance: apollo11
+    app.kubernetes.io/version: "1.0.0"
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/part-of: apollo-airlines
+    hermes: managed
+    app: identity
+spec:
+  type: ClusterIP
+  selector:
+    app: identity
+  ports:
+    - name: http
+      port: 8080
+      targetPort: 8080
+      protocol: TCP
+---
+# Source: apollo11/templates/apps/notification.yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: notification
+  namespace: apollo-airlines-apps
+  labels:
+    app.kubernetes.io/name: apollo11
+    app.kubernetes.io/instance: apollo11
+    app.kubernetes.io/version: "1.0.0"
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/part-of: apollo-airlines
+    hermes: managed
+    app: notification
+spec:
+  type: ClusterIP
+  selector:
+    app: notification
+  ports:
+    - name: http
+      port: 8084
+      targetPort: 8084
+      protocol: TCP
+---
+# Source: apollo11/templates/apps/search.yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: search
+  namespace: apollo-airlines-apps
+  labels:
+    app.kubernetes.io/name: apollo11
+    app.kubernetes.io/instance: apollo11
+    app.kubernetes.io/version: "1.0.0"
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/part-of: apollo-airlines
+    hermes: managed
+    app: search
+spec:
+  type: ClusterIP
+  selector:
+    app: search
+  ports:
+    - name: http
+      port: 8083
+      targetPort: 8083
+      protocol: TCP
+---
+# Source: apollo11/templates/infra/postgres.yaml
+# ClusterIP service — the regular DNS name `<db>-db` resolves to this.
+apiVersion: v1
+kind: Service
+metadata:
+  name: identity-db
+  namespace: apollo-airlines-apps
+  labels:
+    app.kubernetes.io/name: apollo11
+    app.kubernetes.io/instance: apollo11
+    app.kubernetes.io/version: "1.0.0"
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/part-of: apollo-airlines
+    hermes: managed
+spec:
+  type: ClusterIP
+  selector:
+    app: identity-db
+  ports:
+    - port: 5432
+      targetPort: 5432
+      protocol: TCP
+---
+# Source: apollo11/templates/infra/postgres.yaml
+# Headless service — wired as `serviceName` on the StatefulSet. Gives the
+# pod a stable DNS name: <db>-db-0.<db>-db-headless.<ns>.svc.cluster.local.
+apiVersion: v1
+kind: Service
+metadata:
+  name: identity-db-headless
+  namespace: apollo-airlines-apps
+  labels:
+    app.kubernetes.io/name: apollo11
+    app.kubernetes.io/instance: apollo11
+    app.kubernetes.io/version: "1.0.0"
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/part-of: apollo-airlines
+    hermes: managed
+spec:
+  type: ClusterIP
+  clusterIP: None
+  selector:
+    app: identity-db
+  ports:
+    - port: 5432
+      targetPort: 5432
+      protocol: TCP
+---
+# Source: apollo11/templates/infra/postgres.yaml
+# ClusterIP service — the regular DNS name `<db>-db` resolves to this.
+apiVersion: v1
+kind: Service
+metadata:
+  name: flight-db
+  namespace: apollo-airlines-apps
+  labels:
+    app.kubernetes.io/name: apollo11
+    app.kubernetes.io/instance: apollo11
+    app.kubernetes.io/version: "1.0.0"
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/part-of: apollo-airlines
+    hermes: managed
+spec:
+  type: ClusterIP
+  selector:
+    app: flight-db
+  ports:
+    - port: 5432
+      targetPort: 5432
+      protocol: TCP
+---
+# Source: apollo11/templates/infra/postgres.yaml
+# Headless service — wired as `serviceName` on the StatefulSet. Gives the
+# pod a stable DNS name: <db>-db-0.<db>-db-headless.<ns>.svc.cluster.local.
+apiVersion: v1
+kind: Service
+metadata:
+  name: flight-db-headless
+  namespace: apollo-airlines-apps
+  labels:
+    app.kubernetes.io/name: apollo11
+    app.kubernetes.io/instance: apollo11
+    app.kubernetes.io/version: "1.0.0"
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/part-of: apollo-airlines
+    hermes: managed
+spec:
+  type: ClusterIP
+  clusterIP: None
+  selector:
+    app: flight-db
+  ports:
+    - port: 5432
+      targetPort: 5432
+      protocol: TCP
+---
+# Source: apollo11/templates/infra/postgres.yaml
+# ClusterIP service — the regular DNS name `<db>-db` resolves to this.
+apiVersion: v1
+kind: Service
+metadata:
+  name: booking-db
+  namespace: apollo-airlines-apps
+  labels:
+    app.kubernetes.io/name: apollo11
+    app.kubernetes.io/instance: apollo11
+    app.kubernetes.io/version: "1.0.0"
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/part-of: apollo-airlines
+    hermes: managed
+spec:
+  type: ClusterIP
+  selector:
+    app: booking-db
+  ports:
+    - port: 5432
+      targetPort: 5432
+      protocol: TCP
+---
+# Source: apollo11/templates/infra/postgres.yaml
+# Headless service — wired as `serviceName` on the StatefulSet. Gives the
+# pod a stable DNS name: <db>-db-0.<db>-db-headless.<ns>.svc.cluster.local.
+apiVersion: v1
+kind: Service
+metadata:
+  name: booking-db-headless
+  namespace: apollo-airlines-apps
+  labels:
+    app.kubernetes.io/name: apollo11
+    app.kubernetes.io/instance: apollo11
+    app.kubernetes.io/version: "1.0.0"
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/part-of: apollo-airlines
+    hermes: managed
+spec:
+  type: ClusterIP
+  clusterIP: None
+  selector:
+    app: booking-db
+  ports:
+    - port: 5432
+      targetPort: 5432
+      protocol: TCP
+---
+# Source: apollo11/templates/infra/redis.yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: redis
+  namespace: apollo-airlines-apps
+  labels:
+    app.kubernetes.io/name: apollo11
+    app.kubernetes.io/instance: apollo11
+    app.kubernetes.io/version: "1.0.0"
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/part-of: apollo-airlines
+    hermes: managed
+spec:
+  type: ClusterIP
+  selector:
+    app: redis
+  ports:
+    - port: 6379
+      targetPort: 6379
+      protocol: TCP
+---
+# Source: apollo11/templates/infra/redis.yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: redis-headless
+  namespace: apollo-airlines-apps
+  labels:
+    app.kubernetes.io/name: apollo11
+    app.kubernetes.io/instance: apollo11
+    app.kubernetes.io/version: "1.0.0"
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/part-of: apollo-airlines
+    hermes: managed
+spec:
+  type: ClusterIP
+  clusterIP: None
+  selector:
+    app: redis
+  ports:
+    - port: 6379
+      targetPort: 6379
+      protocol: TCP
+---
+# Source: apollo11/templates/observability/grafana/deployment.yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: grafana
+  namespace: apollo-observability
+  labels:
+    app.kubernetes.io/name: grafana
+    app.kubernetes.io/part-of: apollo-airlines
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: grafana
+  ports:
+    - name: http
+      port: 3000
+      targetPort: 3000
+      protocol: TCP
+---
+# Source: apollo11/templates/observability/loki/deployment.yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: loki
+  namespace: apollo-observability
+  labels: { app.kubernetes.io/name: loki, app.kubernetes.io/part-of: apollo-airlines }
+spec:
+  selector: { app.kubernetes.io/name: loki }
+  ports:
+    - { name: http, port: 3100, targetPort: http }
+    - { name: grpc, port: 9096, targetPort: grpc }
+
+---
+# Source: apollo11/templates/observability/otel-collector/daemonset.yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: otel-collector
+  namespace: apollo-observability
+  labels: { app.kubernetes.io/name: otel-collector, app.kubernetes.io/part-of: apollo-airlines }
+spec:
+  selector: { app.kubernetes.io/name: otel-collector }
+  ports:
+    - { name: otlp-grpc, port: 4317, targetPort: otlp-grpc }
+    - { name: otlp-http, port: 4318, targetPort: otlp-http }
+
+---
+# Source: apollo11/templates/observability/prometheus/deployment.yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: prometheus
+  namespace: apollo-observability
+  labels:
+    app.kubernetes.io/name: prometheus
+    app.kubernetes.io/part-of: apollo-airlines
+spec:
+  type: ClusterIP
+  selector:
+    prometheus: apollo
+  ports:
+    - name: http
+      port: 9090
+      targetPort: web
+      protocol: TCP
+
+---
+# Source: apollo11/templates/observability/tempo/deployment.yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: tempo
+  namespace: apollo-observability
+  labels:
+    app.kubernetes.io/name: tempo
+    app.kubernetes.io/part-of: apollo-airlines
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: tempo
+  ports:
+    - name: http
+      port: 3100
+      targetPort: 3100
+      protocol: TCP
+    - name: otlp-grpc
+      port: 4317
+      targetPort: 4317
+      protocol: TCP
+    - name: jaeger-thrift
+      port: 14268
+      targetPort: 14268
+      protocol: TCP
+
+---
+# Source: apollo11/templates/ui/frontend.yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: frontend
+  namespace: apollo-airlines-ui
+  labels:
+    app.kubernetes.io/name: apollo11
+    app.kubernetes.io/instance: apollo11
+    app.kubernetes.io/version: "1.0.0"
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/part-of: apollo-airlines
+    hermes: managed
+spec:
+  type: ClusterIP
+  selector:
+    app: frontend
+  ports:
+    - port: 3000
+      targetPort: 3000
+      protocol: TCP
+---
+# Source: apollo11/templates/observability/loki/alloy.yaml
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: alloy
+  namespace: apollo-observability
+  labels: { app.kubernetes.io/name: alloy, app.kubernetes.io/part-of: apollo-airlines }
+spec:
+  selector:
+    matchLabels: { app.kubernetes.io/name: alloy }
+  template:
+    metadata:
+      labels: { app.kubernetes.io/name: alloy, app.kubernetes.io/part-of: apollo-airlines }
+    spec:
+      serviceAccountName: observability-stack
+      containers:
+        - name: alloy
+          image: "grafana/alloy:v1.18.0"
+          args: ["run", "/etc/alloy/config.alloy", "--server.http.listen-addr=0.0.0.0:12345"]
+          env:
+            - name: NODE_NAME
+              valueFrom:
+                fieldRef: { fieldPath: spec.nodeName }
+          ports:
+            - { name: http, containerPort: 12345 }
+          readinessProbe:
+            httpGet: { path: /-/ready, port: http }
+            initialDelaySeconds: 5
+            periodSeconds: 5
+          resources:
+            limits:
+              cpu: 200m
+              memory: 256Mi
+            requests:
+              cpu: 50m
+              memory: 64Mi
+          volumeMounts:
+            - { name: config, mountPath: /etc/alloy }
+      volumes:
+        - name: config
+          configMap: { name: alloy-config }
+
+---
+# Source: apollo11/templates/observability/otel-collector/daemonset.yaml
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: otel-collector
+  namespace: apollo-observability
+  labels: { app.kubernetes.io/name: otel-collector, app.kubernetes.io/part-of: apollo-airlines }
+spec:
+  selector:
+    matchLabels: { app.kubernetes.io/name: otel-collector }
+  template:
+    metadata:
+      labels: { app.kubernetes.io/name: otel-collector, app.kubernetes.io/part-of: apollo-airlines }
+    spec:
+      serviceAccountName: observability-stack
+      containers:
+        - name: otel-collector
+          image: "otel/opentelemetry-collector-contrib:0.99.0"
+          args: ["--config=/conf/relay.yaml"]
+          ports:
+            - { name: otlp-grpc, containerPort: 4317 }
+            - { name: otlp-http, containerPort: 4318 }
+            - { name: health, containerPort: 13133 }
+          resources:
+            limits:
+              cpu: 300m
+              memory: 256Mi
+            requests:
+              cpu: 100m
+              memory: 128Mi
+          livenessProbe:
+            httpGet: { path: /, port: health }
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          readinessProbe:
+            httpGet: { path: /, port: health }
+            initialDelaySeconds: 5
+            periodSeconds: 5
+          volumeMounts:
+            - { name: config, mountPath: /conf }
+      volumes:
+        - name: config
+          configMap: { name: otel-collector-config }
+---
+# Source: apollo11/templates/apps/booking.yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: booking
+  namespace: apollo-airlines-apps
+  labels:
+    app.kubernetes.io/name: apollo11
+    app.kubernetes.io/instance: apollo11
+    app.kubernetes.io/version: "1.0.0"
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/part-of: apollo-airlines
+    hermes: managed
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: booking
+  template:
+    metadata:
+      labels:
+        app: booking
+        tier: public
+        app.kubernetes.io/name: apollo11
+        app.kubernetes.io/instance: apollo11
+        app.kubernetes.io/version: "1.0.0"
+        app.kubernetes.io/managed-by: Helm
+        app.kubernetes.io/part-of: apollo-airlines
+        hermes: managed
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8082"
+        prometheus.io/path: "/metrics"
+    spec:
+      serviceAccountName: booking
+      priorityClassName: apollo-airlines-app-critical
+      terminationGracePeriodSeconds: 30
+      containers:
+        - name: booking
+          image: "apollo11/booking:latest"
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 8082
+              protocol: TCP
+          env:
+            - name: PORT
+              value: "8082"
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: apollo-airlines-secrets
+                  key: POSTGRES_PASSWORD
+            # Kubernetes expands only variables declared earlier in this list.
+            - name: DATABASE_URL
+              value: "postgresql://postgres:$(POSTGRES_PASSWORD)@booking-db:5432/booking?sslmode=disable"
+            - name: JWT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: apollo-airlines-secrets
+                  key: JWT_SECRET
+            - name: FLIGHT_SERVICE_URL
+              value: "http://flight:8081"
+            - name: IDENTITY_SERVICE_URL
+              value: "http://identity:8080"
+            - name: NOTIFICATION_SERVICE_URL
+              value: "http://notification:8084"
+            - name: OTEL_EXPORTER_OTLP_ENDPOINT
+              value: "otel-collector.apollo-observability.svc.cluster.local:4317"
+            - name: OTEL_SERVICE_NAME
+              value: "booking"
+          startupProbe:
+            httpGet:
+              path: /healthz/startup
+              port: 8082
+            initialDelaySeconds: 0
+            periodSeconds: 5
+            failureThreshold: 6
+          livenessProbe:
+            httpGet:
+              path: /healthz/live
+              port: 8082
+            initialDelaySeconds: 15
+            periodSeconds: 10
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /healthz/ready
+              port: 8082
+            initialDelaySeconds: 5
+            periodSeconds: 5
+            failureThreshold: 3
+          resources:
+            requests:
+              cpu: 200m
+              memory: 256Mi
+            limits:
+              cpu: 200m
+              memory: 256Mi
+
+---
+# Source: apollo11/templates/apps/flight.yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: flight
+  namespace: apollo-airlines-apps
+  labels:
+    app.kubernetes.io/name: apollo11
+    app.kubernetes.io/instance: apollo11
+    app.kubernetes.io/version: "1.0.0"
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/part-of: apollo-airlines
+    hermes: managed
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: flight
+  template:
+    metadata:
+      labels:
+        app: flight
+        tier: public
+        app.kubernetes.io/name: apollo11
+        app.kubernetes.io/instance: apollo11
+        app.kubernetes.io/version: "1.0.0"
+        app.kubernetes.io/managed-by: Helm
+        app.kubernetes.io/part-of: apollo-airlines
+        hermes: managed
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8081"
+        prometheus.io/path: "/metrics"
+    spec:
+      serviceAccountName: flight
+      terminationGracePeriodSeconds: 30
+      containers:
+        - name: flight
+          image: "apollo11/flight:latest"
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 8081
+              protocol: TCP
+          env:
+            - name: PORT
+              value: "8081"
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: apollo-airlines-secrets
+                  key: POSTGRES_PASSWORD
+            # Kubernetes expands only variables declared earlier in this list.
+            - name: DATABASE_URL
+              value: "postgresql://postgres:$(POSTGRES_PASSWORD)@flight-db:5432/flight?sslmode=disable"
+            - name: JWT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: apollo-airlines-secrets
+                  key: JWT_SECRET
+            - name: OTEL_EXPORTER_OTLP_ENDPOINT
+              value: "otel-collector.apollo-observability.svc.cluster.local:4317"
+            - name: OTEL_SERVICE_NAME
+              value: "flight"
+          startupProbe:
+            httpGet:
+              path: /healthz/startup
+              port: 8081
+            initialDelaySeconds: 0
+            periodSeconds: 5
+            failureThreshold: 6
+          livenessProbe:
+            httpGet:
+              path: /healthz/live
+              port: 8081
+            initialDelaySeconds: 15
+            periodSeconds: 10
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /healthz/ready
+              port: 8081
+            initialDelaySeconds: 5
+            periodSeconds: 5
+            failureThreshold: 3
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: 100m
+              memory: 128Mi
+
+---
+# Source: apollo11/templates/apps/identity.yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: identity
+  namespace: apollo-airlines-apps
+  labels:
+    app.kubernetes.io/name: apollo11
+    app.kubernetes.io/instance: apollo11
+    app.kubernetes.io/version: "1.0.0"
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/part-of: apollo-airlines
+    hermes: managed
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: identity
+  template:
+    metadata:
+      labels:
+        app: identity
+        tier: public
+        app.kubernetes.io/name: apollo11
+        app.kubernetes.io/instance: apollo11
+        app.kubernetes.io/version: "1.0.0"
+        app.kubernetes.io/managed-by: Helm
+        app.kubernetes.io/part-of: apollo-airlines
+        hermes: managed
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8080"
+        prometheus.io/path: "/metrics"
+    spec:
+      serviceAccountName: identity
+      terminationGracePeriodSeconds: 30
+      containers:
+        - name: identity
+          image: "apollo11/identity:latest"
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 8080
+              protocol: TCP
+          env:
+            - name: PORT
+              value: "8080"
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: apollo-airlines-secrets
+                  key: POSTGRES_PASSWORD
+            # Kubernetes expands only variables declared earlier in this list.
+            - name: DATABASE_URL
+              value: "postgresql://postgres:$(POSTGRES_PASSWORD)@identity-db:5432/identity?sslmode=disable"
+            - name: JWT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: apollo-airlines-secrets
+                  key: JWT_SECRET
+            - name: OTEL_EXPORTER_OTLP_ENDPOINT
+              value: "otel-collector.apollo-observability.svc.cluster.local:4317"
+            - name: OTEL_SERVICE_NAME
+              value: "identity"
+          startupProbe:
+            httpGet:
+              path: /healthz/startup
+              port: 8080
+            initialDelaySeconds: 0
+            periodSeconds: 5
+            failureThreshold: 6
+          livenessProbe:
+            httpGet:
+              path: /healthz/live
+              port: 8080
+            initialDelaySeconds: 15
+            periodSeconds: 10
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /healthz/ready
+              port: 8080
+            initialDelaySeconds: 5
+            periodSeconds: 5
+            failureThreshold: 3
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: 100m
+              memory: 128Mi
+
+---
+# Source: apollo11/templates/apps/notification.yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: notification
+  namespace: apollo-airlines-apps
+  labels:
+    app.kubernetes.io/name: apollo11
+    app.kubernetes.io/instance: apollo11
+    app.kubernetes.io/version: "1.0.0"
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/part-of: apollo-airlines
+    hermes: managed
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: notification
+  template:
+    metadata:
+      labels:
+        app: notification
+        tier: public
+        app.kubernetes.io/name: apollo11
+        app.kubernetes.io/instance: apollo11
+        app.kubernetes.io/version: "1.0.0"
+        app.kubernetes.io/managed-by: Helm
+        app.kubernetes.io/part-of: apollo-airlines
+        hermes: managed
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8084"
+        prometheus.io/path: "/metrics"
+    spec:
+      serviceAccountName: notification
+      priorityClassName: apollo-airlines-app-low
+      terminationGracePeriodSeconds: 30
+      containers:
+        - name: notification
+          image: "apollo11/notification:latest"
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 8084
+              protocol: TCP
+          env:
+            - name: PORT
+              value: "8084"
+            - name: JWT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: apollo-airlines-secrets
+                  key: JWT_SECRET
+            - name: OTEL_EXPORTER_OTLP_ENDPOINT
+              value: "otel-collector.apollo-observability.svc.cluster.local:4317"
+            - name: OTEL_SERVICE_NAME
+              value: "notification"
+          startupProbe:
+            httpGet:
+              path: /healthz/startup
+              port: 8084
+            initialDelaySeconds: 0
+            periodSeconds: 5
+            failureThreshold: 6
+          livenessProbe:
+            httpGet:
+              path: /healthz/live
+              port: 8084
+            initialDelaySeconds: 15
+            periodSeconds: 10
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /healthz/ready
+              port: 8084
+            initialDelaySeconds: 5
+            periodSeconds: 5
+            failureThreshold: 3
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: 50m
+              memory: 64Mi
+
+---
+# Source: apollo11/templates/apps/search.yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: search
+  namespace: apollo-airlines-apps
+  labels:
+    app.kubernetes.io/name: apollo11
+    app.kubernetes.io/instance: apollo11
+    app.kubernetes.io/version: "1.0.0"
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/part-of: apollo-airlines
+    hermes: managed
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: search
+  template:
+    metadata:
+      labels:
+        app: search
+        tier: public
+        app.kubernetes.io/name: apollo11
+        app.kubernetes.io/instance: apollo11
+        app.kubernetes.io/version: "1.0.0"
+        app.kubernetes.io/managed-by: Helm
+        app.kubernetes.io/part-of: apollo-airlines
+        hermes: managed
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8083"
+        prometheus.io/path: "/metrics"
+    spec:
+      serviceAccountName: search
+      priorityClassName: apollo-airlines-app-critical
+      tolerations:
+        - effect: NoSchedule
+          key: workload
+          operator: Equal
+          value: search
+      affinity:
+        nodeAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+          - preference:
+              matchExpressions:
+              - key: kubernetes.io/hostname
+                operator: Exists
+            weight: 100
+      terminationGracePeriodSeconds: 30
+      containers:
+        - name: search
+          image: "apollo11/search:latest"
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 8083
+              protocol: TCP
+          env:
+            - name: PORT
+              value: "8083"
+            - name: JWT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: apollo-airlines-secrets
+                  key: JWT_SECRET
+            - name: OTEL_EXPORTER_OTLP_ENDPOINT
+              value: "otel-collector.apollo-observability.svc.cluster.local:4317"
+            - name: OTEL_SERVICE_NAME
+              value: "search"
+            # Stage 7: Redis cache backing
+            - name: REDIS_URL
+              value: "redis://redis:6379"
+          startupProbe:
+            httpGet:
+              path: /healthz/startup
+              port: 8083
+            initialDelaySeconds: 0
+            periodSeconds: 5
+            failureThreshold: 6
+          livenessProbe:
+            httpGet:
+              path: /healthz/live
+              port: 8083
+            initialDelaySeconds: 15
+            periodSeconds: 10
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /healthz/ready
+              port: 8083
+            initialDelaySeconds: 5
+            periodSeconds: 5
+            failureThreshold: 3
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: 100m
+              memory: 128Mi
+
+---
+# Source: apollo11/templates/observability/grafana/deployment.yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: grafana
+  namespace: apollo-observability
+  labels:
+    app.kubernetes.io/name: grafana
+    app.kubernetes.io/part-of: apollo-airlines
+    app.kubernetes.io/component: observability
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: grafana
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: grafana
+        app.kubernetes.io/part-of: apollo-airlines
+    spec:
+      serviceAccountName: observability-stack
+      terminationGracePeriodSeconds: 30
+      containers:
+        - name: grafana
+          image: "grafana/grafana:10.4.2"
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: GF_SECURITY_ADMIN_USER
+              valueFrom:
+                secretKeyRef: { name: grafana-admin, key: username }
+            - name: GF_SECURITY_ADMIN_PASSWORD
+              valueFrom:
+                secretKeyRef: { name: grafana-admin, key: password }
+            - name: GF_USERS_ALLOW_SIGN_UP
+              value: "false"
+            - name: GF_AUTH_ANONYMOUS_ENABLED
+              value: "true"
+            - name: GF_AUTH_ANONYMOUS_ORG_ROLE
+              value: Viewer
+            - name: GF_INSTALL_PLUGINS
+              # Trace to logs correlation: jump from a Tempo span to the
+              # matching Loki log entries.
+              value: ""
+          ports:
+            - name: http
+              containerPort: 3000
+              protocol: TCP
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/grafana
+            - name: datasources
+              mountPath: /etc/grafana/provisioning/datasources
+            - name: dashboards
+              mountPath: /var/lib/grafana/dashboards
+            - name: dashboard-provider
+              mountPath: /etc/grafana/provisioning/dashboards
+          resources:
+            limits:
+              cpu: 300m
+              memory: 256Mi
+            requests:
+              cpu: 100m
+              memory: 128Mi
+          livenessProbe:
+            httpGet:
+              path: /api/health
+              port: 3000
+            initialDelaySeconds: 30
+            periodSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /api/health
+              port: 3000
+            initialDelaySeconds: 5
+            periodSeconds: 5
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: grafana-data
+        - name: datasources
+          configMap:
+            name: grafana-datasources
+        - name: dashboards
+          projected:
+            sources:
+              - configMap:
+                  name: grafana-dashboard-overview
+                  items: [{ key: dashboard.json, path: overview.json }]
+              - configMap:
+                  name: grafana-dashboard-booking
+                  items: [{ key: dashboard.json, path: booking.json }]
+              - configMap:
+                  name: grafana-dashboard-errors
+                  items: [{ key: dashboard.json, path: errors.json }]
+              - configMap:
+                  name: grafana-dashboard-saturation
+                  items: [{ key: dashboard.json, path: runtime.json }]
+              - configMap:
+                  name: grafana-dashboard-trace-viewer
+                  items: [{ key: dashboard.json, path: traces.json }]
+        - name: dashboard-provider
+          configMap: { name: grafana-dashboard-provider }
+---
+# Source: apollo11/templates/observability/loki/deployment.yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: loki
+  namespace: apollo-observability
+  labels: { app.kubernetes.io/name: loki, app.kubernetes.io/part-of: apollo-airlines }
+spec:
+  replicas: 1
+  selector:
+    matchLabels: { app.kubernetes.io/name: loki }
+  template:
+    metadata:
+      labels: { app.kubernetes.io/name: loki, app.kubernetes.io/part-of: apollo-airlines }
+    spec:
+      serviceAccountName: observability-stack
+      terminationGracePeriodSeconds: 60
+      containers:
+        - name: loki
+          image: "grafana/loki:2.9.8"
+          imagePullPolicy: IfNotPresent
+          args: ["-config.file=/etc/loki/loki.yaml"]
+          ports:
+            - { name: http, containerPort: 3100, protocol: TCP }
+            - { name: grpc, containerPort: 9096, protocol: TCP }
+          volumeMounts:
+            - { name: config, mountPath: /etc/loki }
+            - { name: data, mountPath: /var/loki }
+          resources:
+            limits:
+              cpu: 500m
+              memory: 512Mi
+            requests:
+              cpu: 100m
+              memory: 256Mi
+          livenessProbe:
+            httpGet: { path: /ready, port: 3100 }
+            initialDelaySeconds: 30
+            periodSeconds: 10
+          readinessProbe:
+            httpGet: { path: /ready, port: 3100 }
+            initialDelaySeconds: 5
+            periodSeconds: 5
+      volumes:
+        - name: config
+          configMap: { name: loki-config }
+        - name: data
+          persistentVolumeClaim: { claimName: loki-data }
+---
+# Source: apollo11/templates/observability/tempo/deployment.yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: tempo
+  namespace: apollo-observability
+  labels:
+    app.kubernetes.io/name: tempo
+    app.kubernetes.io/part-of: apollo-airlines
+    app.kubernetes.io/component: observability
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: tempo
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: tempo
+        app.kubernetes.io/part-of: apollo-airlines
+      annotations:
+        checksum/config: ee0ea59a6a5d3609f6cd64e14fa5c578a01424141bc052381baa0eff06037dba
+    spec:
+      serviceAccountName: observability-stack
+      terminationGracePeriodSeconds: 60
+      containers:
+        - name: tempo
+          image: "grafana/tempo:2.3.1"
+          imagePullPolicy: IfNotPresent
+          args:
+            - "-config.file=/etc/tempo/tempo.yaml"
+          ports:
+            - name: http
+              containerPort: 3100
+              protocol: TCP
+            - name: otlp-grpc
+              containerPort: 4317
+              protocol: TCP
+            - name: jaeger-thrift
+              containerPort: 14268
+              protocol: TCP
+          volumeMounts:
+            - name: config
+              mountPath: /etc/tempo
+            - name: data
+              mountPath: /var/tempo
+          resources:
+            limits:
+              cpu: 300m
+              memory: 256Mi
+            requests:
+              cpu: 100m
+              memory: 128Mi
+          livenessProbe:
+            httpGet:
+              path: /ready
+              port: 3100
+            initialDelaySeconds: 30
+            periodSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /ready
+              port: 3100
+            initialDelaySeconds: 5
+            periodSeconds: 5
+      volumes:
+        - name: config
+          configMap:
+            name: tempo-config
+        - name: data
+          persistentVolumeClaim:
+            claimName: tempo-data
+---
+# Source: apollo11/templates/ui/frontend.yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: frontend
+  namespace: apollo-airlines-ui
+  labels:
+    app.kubernetes.io/name: apollo11
+    app.kubernetes.io/instance: apollo11
+    app.kubernetes.io/version: "1.0.0"
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/part-of: apollo-airlines
+    hermes: managed
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: frontend
+  template:
+    metadata:
+      labels:
+        app: frontend
+        tier: edge
+        app.kubernetes.io/name: apollo11
+        app.kubernetes.io/instance: apollo11
+        app.kubernetes.io/version: "1.0.0"
+        app.kubernetes.io/managed-by: Helm
+        app.kubernetes.io/part-of: apollo-airlines
+        hermes: managed
+    spec:
+      serviceAccountName: frontend
+      terminationGracePeriodSeconds: 30
+      containers:
+        - name: frontend
+          image: "apollo11/frontend:latest"
+          # imagePullPolicy stays at the global default (IfNotPresent).
+          # The frontend image is loaded into the kind node cache by
+          # apply.sh via `kind load docker-image`; the kubelet's
+          # IfNotPresent then reads from that cache. Always would try
+          # to pull from a remote registry (docker.io/apollo11/...)
+          # which doesn't exist for a local kind setup and would
+          # ImagePullBackOff. The combination of `docker build --no-cache`
+          # (forces a fresh image) + `kind load` (puts the fresh image
+          # in the cache) + `kubectl rollout restart deployment/frontend`
+          # (forces the kubelet to re-evaluate the cache) is the
+          # correct update flow for kind. Production would use a real
+          # registry and imagePullPolicy: Always (or, better,
+          # content-hash tags).
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 3000
+              protocol: TCP
+          envFrom:
+            - configMapRef:
+                name: apollo-airlines-config
+          # Frontend probes return 200 unconditionally — NGINX has no
+          # local DB/Redis to check, and readiness on the frontend is
+          # "process is alive and serving", which a successful HTTP
+          # response from NGINX already proves.
+          startupProbe:
+            httpGet:
+              path: /healthz/startup
+              port: 3000
+            initialDelaySeconds: 0
+            periodSeconds: 5
+            failureThreshold: 6
+          livenessProbe:
+            httpGet:
+              path: /healthz/live
+              port: 3000
+            initialDelaySeconds: 15
+            periodSeconds: 10
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /healthz/ready
+              port: 3000
+            initialDelaySeconds: 5
+            periodSeconds: 5
+            failureThreshold: 3
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: 50m
+              memory: 64Mi
+
+---
+# Source: apollo11/templates/autoscaling/search-hpa.yaml
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: search-hpa
+  namespace: apollo-airlines-apps
+  labels:
+    app.kubernetes.io/name: apollo11
+    app.kubernetes.io/instance: apollo11
+    app.kubernetes.io/version: "1.0.0"
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/part-of: apollo-airlines
+    hermes: managed
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: search
+  minReplicas: 2
+  maxReplicas: 10
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 70
+  behavior:
+    scaleDown:
+      stabilizationWindowSeconds: 300
+      policies:
+        - type: Percent
+          value: 50
+          periodSeconds: 60
+    scaleUp:
+      stabilizationWindowSeconds: 0
+      policies:
+        - type: Percent
+          value: 100
+          periodSeconds: 30
+        - type: Pods
+          value: 4
+          periodSeconds: 30
+      selectPolicy: Max
+
+---
+# Source: apollo11/templates/infra/postgres.yaml
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: identity-db
+  namespace: apollo-airlines-apps
+  labels:
+    app.kubernetes.io/name: apollo11
+    app.kubernetes.io/instance: apollo11
+    app.kubernetes.io/version: "1.0.0"
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/part-of: apollo-airlines
+    hermes: managed
+spec:
+  serviceName: identity-db-headless
+  replicas: 1
+  selector:
+    matchLabels:
+      app: identity-db
+  template:
+    metadata:
+      labels:
+        app: identity-db
+        tier: data
+        app.kubernetes.io/name: apollo11
+        app.kubernetes.io/instance: apollo11
+        app.kubernetes.io/version: "1.0.0"
+        app.kubernetes.io/managed-by: Helm
+        app.kubernetes.io/part-of: apollo-airlines
+        hermes: managed
+    spec:
+      serviceAccountName: identity-db
+      terminationGracePeriodSeconds: 60
+      containers:
+        - name: postgres
+          image: postgres:15-alpine
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 5432
+              protocol: TCP
+          env:
+            - name: POSTGRES_USER
+              value: "postgres"
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: apollo-airlines-secrets
+                  key: POSTGRES_PASSWORD
+            - name: POSTGRES_DB
+              value: identity
+            - name: PGDATA
+              value: /var/lib/postgresql/data/pgdata
+          volumeMounts:
+            - name: pg-data
+              mountPath: /var/lib/postgresql/data
+            - name: init-script
+              mountPath: /docker-entrypoint-initdb.d
+          livenessProbe:
+            exec:
+              command: ["pg_isready", "-U", "postgres", "-d", "identity"]
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          readinessProbe:
+            exec:
+              command: ["pg_isready", "-U", "postgres", "-d", "identity"]
+            initialDelaySeconds: 5
+            periodSeconds: 5
+          resources:
+            limits:
+              cpu: 200m
+              memory: 256Mi
+            requests:
+              cpu: 200m
+              memory: 256Mi
+      volumes:
+        - name: init-script
+          configMap:
+            name: identity-db-init-script
+  volumeClaimTemplates:
+    - metadata:
+        name: pg-data
+        labels:
+          app.kubernetes.io/name: apollo11
+          app.kubernetes.io/instance: apollo11
+          app.kubernetes.io/version: "1.0.0"
+          app.kubernetes.io/managed-by: Helm
+          app.kubernetes.io/part-of: apollo-airlines
+          hermes: managed
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        # storageClassName is intentionally omitted — kind's default
+        # local-path StorageClass is used.
+        resources:
+          requests:
+            storage: 1Gi
+---
+# Source: apollo11/templates/infra/postgres.yaml
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: flight-db
+  namespace: apollo-airlines-apps
+  labels:
+    app.kubernetes.io/name: apollo11
+    app.kubernetes.io/instance: apollo11
+    app.kubernetes.io/version: "1.0.0"
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/part-of: apollo-airlines
+    hermes: managed
+spec:
+  serviceName: flight-db-headless
+  replicas: 1
+  selector:
+    matchLabels:
+      app: flight-db
+  template:
+    metadata:
+      labels:
+        app: flight-db
+        tier: data
+        app.kubernetes.io/name: apollo11
+        app.kubernetes.io/instance: apollo11
+        app.kubernetes.io/version: "1.0.0"
+        app.kubernetes.io/managed-by: Helm
+        app.kubernetes.io/part-of: apollo-airlines
+        hermes: managed
+    spec:
+      serviceAccountName: flight-db
+      terminationGracePeriodSeconds: 60
+      containers:
+        - name: postgres
+          image: postgres:15-alpine
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 5432
+              protocol: TCP
+          env:
+            - name: POSTGRES_USER
+              value: "postgres"
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: apollo-airlines-secrets
+                  key: POSTGRES_PASSWORD
+            - name: POSTGRES_DB
+              value: flight
+            - name: PGDATA
+              value: /var/lib/postgresql/data/pgdata
+          volumeMounts:
+            - name: pg-data
+              mountPath: /var/lib/postgresql/data
+            - name: init-script
+              mountPath: /docker-entrypoint-initdb.d
+          livenessProbe:
+            exec:
+              command: ["pg_isready", "-U", "postgres", "-d", "flight"]
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          readinessProbe:
+            exec:
+              command: ["pg_isready", "-U", "postgres", "-d", "flight"]
+            initialDelaySeconds: 5
+            periodSeconds: 5
+          resources:
+            limits:
+              cpu: 200m
+              memory: 256Mi
+            requests:
+              cpu: 200m
+              memory: 256Mi
+      volumes:
+        - name: init-script
+          configMap:
+            name: flight-db-init-script
+  volumeClaimTemplates:
+    - metadata:
+        name: pg-data
+        labels:
+          app.kubernetes.io/name: apollo11
+          app.kubernetes.io/instance: apollo11
+          app.kubernetes.io/version: "1.0.0"
+          app.kubernetes.io/managed-by: Helm
+          app.kubernetes.io/part-of: apollo-airlines
+          hermes: managed
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        # storageClassName is intentionally omitted — kind's default
+        # local-path StorageClass is used.
+        resources:
+          requests:
+            storage: 1Gi
+---
+# Source: apollo11/templates/infra/postgres.yaml
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: booking-db
+  namespace: apollo-airlines-apps
+  labels:
+    app.kubernetes.io/name: apollo11
+    app.kubernetes.io/instance: apollo11
+    app.kubernetes.io/version: "1.0.0"
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/part-of: apollo-airlines
+    hermes: managed
+spec:
+  serviceName: booking-db-headless
+  replicas: 1
+  selector:
+    matchLabels:
+      app: booking-db
+  template:
+    metadata:
+      labels:
+        app: booking-db
+        tier: data
+        app.kubernetes.io/name: apollo11
+        app.kubernetes.io/instance: apollo11
+        app.kubernetes.io/version: "1.0.0"
+        app.kubernetes.io/managed-by: Helm
+        app.kubernetes.io/part-of: apollo-airlines
+        hermes: managed
+    spec:
+      serviceAccountName: booking-db
+      terminationGracePeriodSeconds: 60
+      containers:
+        - name: postgres
+          image: postgres:15-alpine
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 5432
+              protocol: TCP
+          env:
+            - name: POSTGRES_USER
+              value: "postgres"
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: apollo-airlines-secrets
+                  key: POSTGRES_PASSWORD
+            - name: POSTGRES_DB
+              value: booking
+            - name: PGDATA
+              value: /var/lib/postgresql/data/pgdata
+          volumeMounts:
+            - name: pg-data
+              mountPath: /var/lib/postgresql/data
+            - name: init-script
+              mountPath: /docker-entrypoint-initdb.d
+          livenessProbe:
+            exec:
+              command: ["pg_isready", "-U", "postgres", "-d", "booking"]
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          readinessProbe:
+            exec:
+              command: ["pg_isready", "-U", "postgres", "-d", "booking"]
+            initialDelaySeconds: 5
+            periodSeconds: 5
+          resources:
+            limits:
+              cpu: 200m
+              memory: 256Mi
+            requests:
+              cpu: 200m
+              memory: 256Mi
+      volumes:
+        - name: init-script
+          configMap:
+            name: booking-db-init-script
+  volumeClaimTemplates:
+    - metadata:
+        name: pg-data
+        labels:
+          app.kubernetes.io/name: apollo11
+          app.kubernetes.io/instance: apollo11
+          app.kubernetes.io/version: "1.0.0"
+          app.kubernetes.io/managed-by: Helm
+          app.kubernetes.io/part-of: apollo-airlines
+          hermes: managed
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        # storageClassName is intentionally omitted — kind's default
+        # local-path StorageClass is used.
+        resources:
+          requests:
+            storage: 1Gi
+
+---
+# Source: apollo11/templates/infra/redis.yaml
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: redis
+  namespace: apollo-airlines-apps
+  labels:
+    app.kubernetes.io/name: apollo11
+    app.kubernetes.io/instance: apollo11
+    app.kubernetes.io/version: "1.0.0"
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/part-of: apollo-airlines
+    hermes: managed
+spec:
+  serviceName: redis-headless
+  replicas: 1
+  selector:
+    matchLabels:
+      app: redis
+  template:
+    metadata:
+      labels:
+        app: redis
+        tier: data
+        app.kubernetes.io/name: apollo11
+        app.kubernetes.io/instance: apollo11
+        app.kubernetes.io/version: "1.0.0"
+        app.kubernetes.io/managed-by: Helm
+        app.kubernetes.io/part-of: apollo-airlines
+        hermes: managed
+    spec:
+      serviceAccountName: redis
+      terminationGracePeriodSeconds: 60
+      containers:
+        - name: redis
+          image: redis:7-alpine
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 6379
+              protocol: TCP
+          command:
+            - redis-server
+            - --appendonly yes
+            - --appendfsync everysec
+            - --save 60 100
+          volumeMounts:
+            - name: redis-data
+              mountPath: /data
+          livenessProbe:
+            exec:
+              command: ["redis-cli", "ping"]
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          readinessProbe:
+            exec:
+              command: ["redis-cli", "ping"]
+            initialDelaySeconds: 3
+            periodSeconds: 5
+          resources:
+            limits:
+              cpu: 100m
+              memory: 128Mi
+            requests:
+              cpu: 100m
+              memory: 128Mi
+  volumeClaimTemplates:
+    - metadata:
+        name: redis-data
+        labels:
+          app.kubernetes.io/name: apollo11
+          app.kubernetes.io/instance: apollo11
+          app.kubernetes.io/version: "1.0.0"
+          app.kubernetes.io/managed-by: Helm
+          app.kubernetes.io/part-of: apollo-airlines
+          hermes: managed
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        resources:
+          requests:
+            storage: 1Gi
+
+---
+# Source: apollo11/templates/jobs/seed.yaml
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: seed-identity-db
+  namespace: apollo-airlines-apps
+  labels:
+    app.kubernetes.io/name: apollo11
+    app.kubernetes.io/instance: apollo11
+    app.kubernetes.io/version: "1.0.0"
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/part-of: apollo-airlines
+    hermes: managed
+    app: seed-identity-db
+spec:
+  backoffLimit: 3
+  template:
+    metadata:
+      labels:
+        app: seed-identity-db
+    spec:
+      serviceAccountName: init-identity-db
+      restartPolicy: OnFailure
+      containers:
+        - name: seed
+          image: postgres:15-alpine
+          command:
+            - sh
+            - -c
+            - |
+              set -e
+              until pg_isready -h identity-db -U postgres; do echo "Waiting for identity-db..."; sleep 2; done
+              psql -h identity-db -U postgres -d identity -v ON_ERROR_STOP=1 -f /init/seed.sql
+              echo "identity DB seeded"
+          env:
+            - name: PGPASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: apollo-airlines-secrets
+                  key: POSTGRES_PASSWORD
+          volumeMounts:
+            - name: seed-script
+              mountPath: /init
+      volumes:
+        - name: seed-script
+          configMap:
+            name: identity-db-seed
+---
+# Source: apollo11/templates/jobs/seed.yaml
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: seed-flight-db
+  namespace: apollo-airlines-apps
+  labels:
+    app.kubernetes.io/name: apollo11
+    app.kubernetes.io/instance: apollo11
+    app.kubernetes.io/version: "1.0.0"
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/part-of: apollo-airlines
+    hermes: managed
+    app: seed-flight-db
+spec:
+  backoffLimit: 3
+  template:
+    metadata:
+      labels:
+        app: seed-flight-db
+    spec:
+      serviceAccountName: init-flight-db
+      restartPolicy: OnFailure
+      containers:
+        - name: seed
+          image: postgres:15-alpine
+          command:
+            - sh
+            - -c
+            - |
+              set -e
+              until pg_isready -h flight-db -U postgres; do echo "Waiting for flight-db..."; sleep 2; done
+              psql -h flight-db -U postgres -d flight -v ON_ERROR_STOP=1 -f /init/seed.sql
+              echo "flight DB seeded"
+          env:
+            - name: PGPASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: apollo-airlines-secrets
+                  key: POSTGRES_PASSWORD
+          volumeMounts:
+            - name: seed-script
+              mountPath: /init
+      volumes:
+        - name: seed-script
+          configMap:
+            name: flight-db-seed
+---
+# Source: apollo11/templates/jobs/seed.yaml
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: seed-booking-db
+  namespace: apollo-airlines-apps
+  labels:
+    app.kubernetes.io/name: apollo11
+    app.kubernetes.io/instance: apollo11
+    app.kubernetes.io/version: "1.0.0"
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/part-of: apollo-airlines
+    hermes: managed
+    app: seed-booking-db
+spec:
+  backoffLimit: 3
+  template:
+    metadata:
+      labels:
+        app: seed-booking-db
+    spec:
+      serviceAccountName: init-booking-db
+      restartPolicy: OnFailure
+      containers:
+        - name: seed
+          image: postgres:15-alpine
+          command:
+            - sh
+            - -c
+            - |
+              set -e
+              until pg_isready -h booking-db -U postgres; do echo "Waiting for booking-db..."; sleep 2; done
+              psql -h booking-db -U postgres -d booking -v ON_ERROR_STOP=1 -f /init/seed.sql
+              echo "booking DB seeded"
+          env:
+            - name: PGPASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: apollo-airlines-secrets
+                  key: POSTGRES_PASSWORD
+          volumeMounts:
+            - name: seed-script
+              mountPath: /init
+      volumes:
+        - name: seed-script
+          configMap:
+            name: booking-db-seed
+
+---
+# Source: apollo11/templates/gateway/gateway.yaml
+# The Gateway itself. Listens on port 80 (HTTP). allowedRoutes.namespaces
+# is set to "All" so HTTPRoutes in any namespace can attach — but cross-
+# namespace attachment still requires a ReferenceGrant in the target
+# namespace (see below).
+apiVersion: gateway.networking.k8s.io/v1
+kind: Gateway
+metadata:
+  name: apollo-gateway
+  namespace: apollo-airlines-apps
+  labels:
+    app.kubernetes.io/name: apollo11
+    app.kubernetes.io/instance: apollo11
+    app.kubernetes.io/version: "1.0.0"
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/part-of: apollo-airlines
+    hermes: managed
+spec:
+  gatewayClassName: eg
+  listeners:
+    - name: web
+      port: 80
+      protocol: HTTP
+      allowedRoutes:
+        namespaces:
+          from: All
+
+---
+# Source: apollo11/templates/gateway/gateway.yaml
+# GatewayClass — referenced by every Gateway. The controller name must
+# match the Envoy Gateway controller's admission webhook.
+apiVersion: gateway.networking.k8s.io/v1
+kind: GatewayClass
+metadata:
+  name: eg
+  labels:
+    app.kubernetes.io/name: apollo11
+    app.kubernetes.io/instance: apollo11
+    app.kubernetes.io/version: "1.0.0"
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/part-of: apollo-airlines
+    hermes: managed
+spec:
+  controllerName: gateway.envoyproxy.io/gatewayclass-controller
+---
+# Source: apollo11/templates/gateway/httproutes.yaml
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: identity
+  namespace: apollo-airlines-apps
+  labels:
+    app.kubernetes.io/name: apollo11
+    app.kubernetes.io/instance: apollo11
+    app.kubernetes.io/version: "1.0.0"
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/part-of: apollo-airlines
+    hermes: managed
+spec:
+  parentRefs:
+    - name: apollo-gateway
+      namespace: apollo-airlines-apps
+  hostnames:
+    - identity.apollo.local
+  rules:
+    - backendRefs:
+        - name: identity
+          port: 8080
+---
+# Source: apollo11/templates/gateway/httproutes.yaml
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: flight
+  namespace: apollo-airlines-apps
+  labels:
+    app.kubernetes.io/name: apollo11
+    app.kubernetes.io/instance: apollo11
+    app.kubernetes.io/version: "1.0.0"
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/part-of: apollo-airlines
+    hermes: managed
+spec:
+  parentRefs:
+    - name: apollo-gateway
+      namespace: apollo-airlines-apps
+  hostnames:
+    - flight.apollo.local
+  rules:
+    - backendRefs:
+        - name: flight
+          port: 8081
+---
+# Source: apollo11/templates/gateway/httproutes.yaml
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: booking
+  namespace: apollo-airlines-apps
+  labels:
+    app.kubernetes.io/name: apollo11
+    app.kubernetes.io/instance: apollo11
+    app.kubernetes.io/version: "1.0.0"
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/part-of: apollo-airlines
+    hermes: managed
+spec:
+  parentRefs:
+    - name: apollo-gateway
+      namespace: apollo-airlines-apps
+  hostnames:
+    - booking.apollo.local
+  rules:
+    - backendRefs:
+        - name: booking
+          port: 8082
+---
+# Source: apollo11/templates/gateway/httproutes.yaml
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: search
+  namespace: apollo-airlines-apps
+  labels:
+    app.kubernetes.io/name: apollo11
+    app.kubernetes.io/instance: apollo11
+    app.kubernetes.io/version: "1.0.0"
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/part-of: apollo-airlines
+    hermes: managed
+spec:
+  parentRefs:
+    - name: apollo-gateway
+      namespace: apollo-airlines-apps
+  hostnames:
+    - search.apollo.local
+  rules:
+    - backendRefs:
+        - name: search
+          port: 8083
+---
+# Source: apollo11/templates/gateway/httproutes.yaml
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: notification
+  namespace: apollo-airlines-apps
+  labels:
+    app.kubernetes.io/name: apollo11
+    app.kubernetes.io/instance: apollo11
+    app.kubernetes.io/version: "1.0.0"
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/part-of: apollo-airlines
+    hermes: managed
+spec:
+  parentRefs:
+    - name: apollo-gateway
+      namespace: apollo-airlines-apps
+  hostnames:
+    - notification.apollo.local
+  rules:
+    - backendRefs:
+        - name: notification
+          port: 8084
+---
+# Source: apollo11/templates/gateway/httproutes.yaml
+# Frontend route — cross-namespace. The route lives in apollo-airlines-ui
+# but attaches to the Gateway in apollo-airlines-apps. ReferenceGrant in
+# apollo-airlines-ui authorizes this.
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: frontend
+  namespace: apollo-airlines-ui
+  labels:
+    app.kubernetes.io/name: apollo11
+    app.kubernetes.io/instance: apollo11
+    app.kubernetes.io/version: "1.0.0"
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/part-of: apollo-airlines
+    hermes: managed
+spec:
+  parentRefs:
+    - name: apollo-gateway
+      namespace: apollo-airlines-apps
+  hostnames:
+    - frontend.apollo.local
+  rules:
+    - backendRefs:
+        - name: frontend
+          port: 3000
+---
+# Source: apollo11/templates/observability/ingress/grafana-route.yaml
+# Cross-namespace HTTPRoute: Grafana in apollo-observability, served via
+# the Envoy Gateway in apollo-airlines-apps. The Gateway listener permits
+# routes from all namespaces, and the backend Service is local to this route.
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: grafana
+  namespace: apollo-observability
+  labels:
+    app.kubernetes.io/name: grafana
+    app.kubernetes.io/part-of: apollo-airlines
+spec:
+  parentRefs:
+    - name: apollo-gateway
+      namespace: apollo-airlines-apps
+  hostnames:
+    - "grafana.apollo.local"
+  rules:
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /
+      backendRefs:
+        - name: grafana
+          port: 3000
+
+---
+# Source: apollo11/templates/gateway/metallb.yaml
+apiVersion: metallb.io/v1beta1
+kind: IPAddressPool
+metadata:
+  name: apollo-pool
+  namespace: metallb-system
+  labels:
+    app.kubernetes.io/name: apollo11
+    app.kubernetes.io/instance: apollo11
+    app.kubernetes.io/version: "1.0.0"
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/part-of: apollo-airlines
+    hermes: managed
+spec:
+  addresses:
+    - 172.18.0.50-172.18.0.100
+---
+# Source: apollo11/templates/gateway/metallb.yaml
+apiVersion: metallb.io/v1beta1
+kind: L2Advertisement
+metadata:
+  name: apollo-l2
+  namespace: metallb-system
+  labels:
+    app.kubernetes.io/name: apollo11
+    app.kubernetes.io/instance: apollo11
+    app.kubernetes.io/version: "1.0.0"
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/part-of: apollo-airlines
+    hermes: managed
+spec:
+  ipAddressPools:
+    - apollo-pool
+
+---
+# Source: apollo11/templates/observability/prometheus/deployment.yaml
+apiVersion: monitoring.coreos.com/v1
+kind: Prometheus
+metadata:
+  name: apollo
+  namespace: apollo-observability
+  labels:
+    app.kubernetes.io/name: prometheus
+    app.kubernetes.io/part-of: apollo-airlines
+spec:
+  image: "quay.io/prometheus/prometheus:v3.13.1"
+  replicas: 1
+  serviceAccountName: observability-stack
+  serviceMonitorNamespaceSelector:
+    matchLabels:
+      kubernetes.io/metadata.name: apollo-observability
+  serviceMonitorSelector:
+    matchLabels:
+      app.kubernetes.io/part-of: apollo-airlines
+  ruleNamespaceSelector:
+    matchLabels:
+      kubernetes.io/metadata.name: apollo-observability
+  ruleSelector:
+    matchLabels:
+      app.kubernetes.io/part-of: apollo-airlines
+  retention: "7d"
+  resources:
+    limits:
+      cpu: 500m
+      memory: 512Mi
+    requests:
+      cpu: 200m
+      memory: 256Mi
+  storage:
+    volumeClaimTemplate:
+      spec:
+        accessModes: [ReadWriteOnce]
+        resources:
+          requests:
+            storage: 1Gi
+  securityContext:
+    fsGroup: 65534
+    runAsNonRoot: true
+    runAsUser: 65534
+---
+# Source: apollo11/templates/observability/prometheus/rules.yaml
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: apollo-services
+  namespace: apollo-observability
+  labels:
+    app.kubernetes.io/name: prometheus
+    app.kubernetes.io/part-of: apollo-airlines
+spec:
+  groups:
+    - name: apollo.availability
+      interval: 30s
+      rules:
+        - alert: ApolloServiceDown
+          expr: up{namespace="apollo-airlines-apps"} == 0
+          for: 2m
+          labels: { severity: critical, team: platform }
+          annotations:
+            summary: Apollo backend metrics target is down
+        - alert: ApolloServiceFlapping
+          expr: changes(up{namespace="apollo-airlines-apps"}[10m]) > 6
+          labels: { severity: warning, team: platform }
+          annotations:
+            summary: Apollo backend metrics target is flapping
+    - name: apollo.http
+      interval: 30s
+      rules:
+        - alert: ApolloErrorRateHigh
+          expr: sum by (service) (rate(http_requests_total{status=~"5.."}[5m])) / clamp_min(sum by (service) (rate(http_requests_total[5m])), 0.001) > 0.05
+          for: 5m
+          labels: { severity: critical, team: platform }
+          annotations:
+            summary: Apollo backend 5xx rate exceeds 5 percent
+        - alert: ApolloBookingLatencyP95High
+          expr: histogram_quantile(0.95, sum by (le) (rate(http_request_duration_ms_bucket{service="booking"}[5m]))) > 500
+          for: 5m
+          labels: { severity: warning, team: platform, service: booking }
+          annotations:
+            summary: Booking p95 latency exceeds 500 milliseconds
+
+---
+# Source: apollo11/templates/gateway/httproutes.yaml
+# Cross-namespace ReferenceGrant — required because HTTPRoutes in
+# apollo-airlines-apps (5 of them, above) need to attach to the frontend
+# Service in apollo-airlines-ui, and HTTPRoutes in apollo-airlines-ui
+# (1 of them, frontend) attach to the Gateway in apollo-airlines-apps.
+apiVersion: gateway.networking.k8s.io/v1beta1
+kind: ReferenceGrant
+metadata:
+  name: apollo-gateway-grant
+  namespace: apollo-airlines-ui
+  labels:
+    app.kubernetes.io/name: apollo11
+    app.kubernetes.io/instance: apollo11
+    app.kubernetes.io/version: "1.0.0"
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/part-of: apollo-airlines
+    hermes: managed
+spec:
+  from:
+    - group: gateway.networking.k8s.io
+      kind: HTTPRoute
+      namespace: apollo-airlines-apps
+  to:
+    - group: ""
+      kind: Service
+      name: frontend
+
+---
+# Source: apollo11/templates/observability/servicemonitors/booking-sm.yaml
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: booking
+  namespace: apollo-observability
+  labels:
+    app.kubernetes.io/name: booking
+    app.kubernetes.io/part-of: apollo-airlines
+    release: apollo11
+spec:
+  selector:
+    matchLabels:
+      app: booking
+  namespaceSelector:
+    any: true
+  endpoints:
+    - port: http
+      path: /metrics
+      scheme: http
+      interval: 30s
+      scrapeTimeout: 10s
+      honorLabels: true
+  jobLabel: app
+
+---
+# Source: apollo11/templates/observability/servicemonitors/flight-sm.yaml
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: flight
+  namespace: apollo-observability
+  labels:
+    app.kubernetes.io/name: flight
+    app.kubernetes.io/part-of: apollo-airlines
+    release: apollo11
+spec:
+  selector:
+    matchLabels:
+      app: flight
+  namespaceSelector:
+    any: true
+  endpoints:
+    - port: http
+      path: /metrics
+      scheme: http
+      interval: 30s
+      scrapeTimeout: 10s
+      honorLabels: true
+  jobLabel: app
+
+---
+# Source: apollo11/templates/observability/servicemonitors/identity-sm.yaml
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: identity
+  namespace: apollo-observability
+  labels:
+    app.kubernetes.io/name: identity
+    app.kubernetes.io/part-of: apollo-airlines
+    release: apollo11
+spec:
+  selector:
+    matchLabels:
+      app: identity
+  namespaceSelector:
+    any: true
+  endpoints:
+    - port: http
+      path: /metrics
+      scheme: http
+      interval: 30s
+      scrapeTimeout: 10s
+      honorLabels: true
+  jobLabel: app
+
+---
+# Source: apollo11/templates/observability/servicemonitors/notification-sm.yaml
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: notification
+  namespace: apollo-observability
+  labels:
+    app.kubernetes.io/name: notification
+    app.kubernetes.io/part-of: apollo-airlines
+    release: apollo11
+spec:
+  selector:
+    matchLabels:
+      app: notification
+  namespaceSelector:
+    any: true
+  endpoints:
+    - port: http
+      path: /metrics
+      scheme: http
+      interval: 30s
+      scrapeTimeout: 10s
+      honorLabels: true
+  jobLabel: app
+
+---
+# Source: apollo11/templates/observability/servicemonitors/search-sm.yaml
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: search
+  namespace: apollo-observability
+  labels:
+    app.kubernetes.io/name: search
+    app.kubernetes.io/part-of: apollo-airlines
+    release: apollo11
+spec:
+  selector:
+    matchLabels:
+      app: search
+  namespaceSelector:
+    any: true
+  endpoints:
+    - port: http
+      path: /metrics
+      scheme: http
+      interval: 30s
+      scrapeTimeout: 10s
+      honorLabels: true
+  jobLabel: app
+
+---
+# Source: apollo11/templates/autoscaling/search-vpa.yaml
+apiVersion: autoscaling.k8s.io/v1
+kind: VerticalPodAutoscaler
+metadata:
+  name: search-vpa
+  namespace: apollo-airlines-apps
+  labels:
+    app.kubernetes.io/name: apollo11
+    app.kubernetes.io/instance: apollo11
+    app.kubernetes.io/version: "1.0.0"
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/part-of: apollo-airlines
+    hermes: managed
+spec:
+  targetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: search
+  updatePolicy:
+    updateMode: "Off"
+  resourcePolicy:
+    containerPolicies:
+      - containerName: search
+        minAllowed:
+          cpu: 50m
+          memory: 64Mi
+        maxAllowed:
+          cpu: 1
+          memory: 512Mi
+        controlledResources: ["cpu", "memory"]

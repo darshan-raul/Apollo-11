@@ -8,12 +8,14 @@ metadata:
   namespace: {{ .Values.namespaces.apps }}
   labels:
     {{- include "apollo11.labels" . | nindent 4 }}
+    app: {{ $name }}
 spec:
   type: ClusterIP
   selector:
     app: {{ $name }}
   ports:
-    - port: {{ $appCfg.port }}
+    - name: http
+      port: {{ $appCfg.port }}
       targetPort: {{ $appCfg.port }}
       protocol: TCP
 ---
@@ -33,7 +35,6 @@ spec:
     metadata:
       labels:
         {{- include "apollo11.podLabels" (dict "root" . "name" $name) | nindent 8 }}
-    spec:
       annotations:
         prometheus.io/scrape: "true"
         prometheus.io/port: {{ $appCfg.port | quote }}
@@ -59,17 +60,10 @@ spec:
                 secretKeyRef:
                   name: apollo-airlines-secrets
                   key: JWT_SECRET
-            # Stage 6: OpenTelemetry
             - name: OTEL_EXPORTER_OTLP_ENDPOINT
-              value: "otel-collector:4317"
+              value: "otel-collector.{{ .Values.observability.namespace }}.svc.cluster.local:4317"
             - name: OTEL_SERVICE_NAME
               value: {{ $name | quote }}
-            - name: OTEL_TRACES_EXPORTER
-              value: "otlp"
-            - name: OTEL_METRICS_EXPORTER
-              value: "otlp"
-            - name: OTEL_LOGS_EXPORTER
-              value: "otlp"
           {{- with .Values.probes.startup }}
           startupProbe:
             httpGet:

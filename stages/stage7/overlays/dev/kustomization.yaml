@@ -1,0 +1,70 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+# Dev overlay — 1 replica per service, dev image tag.
+# Smallest footprint; cheap for local iteration. Resources, probes, and
+# terminationGracePeriod are inherited from the base.
+
+labels:
+  - includeSelectors: false
+    pairs:
+      environment: dev
+
+resources:
+  - ../base
+
+# Dev keeps one search replica and omits VPA's three control-plane pods.
+# The base carries production-shaped defaults; these patches mirror
+# values-dev.yaml for the plain-manifest delivery path.
+patches:
+  - target:
+      group: autoscaling
+      version: v2
+      kind: HorizontalPodAutoscaler
+      name: search-hpa
+    patch: |-
+      - op: replace
+        path: /spec/minReplicas
+        value: 1
+      - op: replace
+        path: /spec/maxReplicas
+        value: 3
+  - target:
+      group: autoscaling.k8s.io
+      version: v1
+      kind: VerticalPodAutoscaler
+      name: search-vpa
+    patch: |-
+      $patch: delete
+      apiVersion: autoscaling.k8s.io/v1
+      kind: VerticalPodAutoscaler
+      metadata:
+        name: search-vpa
+
+replicas:
+  - name: identity
+    count: 1
+  - name: flight
+    count: 1
+  - name: booking
+    count: 1
+  - name: search
+    count: 1
+  - name: notification
+    count: 1
+  - name: frontend
+    count: 1
+
+images:
+  - name: apollo11/identity
+    newTag: latest
+  - name: apollo11/flight
+    newTag: latest
+  - name: apollo11/booking
+    newTag: latest
+  - name: apollo11/search
+    newTag: latest
+  - name: apollo11/notification
+    newTag: latest
+  - name: apollo11/frontend
+    newTag: latest
