@@ -8,6 +8,33 @@ Apollo11 is a **13-phase Kubernetes/cloud-native learning bootstrap** using **Ap
 
 ---
 
+## Learner-First Lab Contract
+
+Apollo11 is for a practical learner. New stages and documentation must preserve
+learner agency as the platform grows:
+
+1. **Build:** introduce the minimum new Kubernetes mechanism on top of a known
+   working baseline.
+2. **Inspect:** show the learner which resource, status, event, log, metric, or
+   trace proves the mechanism is active.
+3. **Break:** provide an exact, safe, reversible failure experiment.
+4. **Recover:** restore the system and prove recovery through observable
+   behavior, not resource existence alone.
+5. **Explain:** end with a short set of questions the learner should now be
+   able to answer.
+
+Automation scripts remain the reproducible installation and maintainer
+verification path. They must not be the learner's only interaction with a new
+concept. Large pass counts establish implementation confidence; each README
+must also identify a small number of human-observable learning outcomes.
+
+Do not advertise a concept as taught when the lab only contains an inert
+manifest. If a local limitation prevents enforcement (for example kindnet and
+NetworkPolicy), label it as reference-only and defer the behavioral claim to a
+stage where the effect can be demonstrated.
+
+---
+
 ## Stage Map
 
 | Phase | Name | Focus |
@@ -16,16 +43,16 @@ Apollo11 is a **13-phase Kubernetes/cloud-native learning bootstrap** using **Ap
 | Ignition | kind cluster | First pod, kubectl basics, cluster architecture |
 | Stage 1 | Liftoff | All 10 components as Deployments, ConfigMaps, Secrets, Jobs (single-namespace baseline) |
 | Stage 2 | Guidance/N&C | **5 manifest sets** — Namespaces, DNS, ServiceAccounts, Headless Services, NetworkPolicies (reference), Ingress (Traefik), Ingress+dashboard, LoadBalancer+MetalLB, Gateway API (Envoy)+MetalLB. Each set introduces one new concept on top of the previous. |
-| Stage 3 | Mission Data | StatefulSets + 1Gi PVCs for all 4 stateful workloads (3 PG + redis), schema bootstrap via Postgres `/docker-entrypoint-initdb.d/` ConfigMap mount, idempotent seed Jobs. **Envoy Gateway + MetalLB access stack from Stage 2 set 4 carries over verbatim and persists for all later stages.** |
+| Stage 3 | Mission Data | StatefulSets + 1Gi PVCs for all 4 stateful workloads (3 PG + redis), schema bootstrap via Postgres `/docker-entrypoint-initdb.d/` ConfigMap mount, idempotent seed Jobs. **Envoy Gateway + MetalLB access stack from Stage 2 set 5 carries over and persists for later completed stages.** |
 | Stage 4 | Flight Control | Probes, resource limits, QoS, PodDisruptionBudget |
 | Stage 5 | Payload Integration | Helm chart (full access stack), Kustomize overlays (dev/staging/prod), GitHub Actions CI, **ArgoCD GitOps module** (AppProject + 3 Applications) |
 | Stage 6 | Mission Ops | Prometheus, Grafana, OpenTelemetry |
 | Stage 7 | Orbital Maneuvering | HPA, VPA, Redis cache, taints/tolerations, affinity |
-| Stage 8 | Command Module | RBAC, SecurityContext, OPA, Vault |
-| Stage EKS | Cloud Target — EKS | Stage 2 set 5 + Stage 3 workloads on real AWS: EKS cluster (terraform-aws-modules/eks v21.x), AWS NLB via AWS Load Balancer Controller, EBS CSI driver + ebs-gp3 StorageClass (WaitForFirstConsumer), ECR per service. One-command spin-up/teardown. The Stage 2 set 5 manifests are reused verbatim; the only changes are 5 LBC annotations on the `EnvoyProxy` + the `ebs-gp3` StorageClass. |
-| Stage 9 | Lunar Orbit | EKS/GKE via Terraform, Cluster Autoscaler, HA |
-| Stage 10 | Mission Extensions | Linkerd, Argo Rollouts, Chaos Mesh, DevSecOps |
-| Stage 11 | Towards Mars | CRDs/Operators, k3s homelab, KEDA |
+| Stage 8 | Command Module — **planned** | Observable RBAC, workload hardening, enforced NetworkPolicy, secrets, admission policy, image scanning |
+| Stage EKS | Cloud Target — EKS — **prototype** | Structurally reviewed AWS prototype; not yet trusted by a real-account apply/verify/destroy lifecycle |
+| Stage 9 | Lunar Orbit — **planned** | One primary cloud lifecycle, node scaling/failure, upgrades, cost and teardown; GKE as a later portability mission |
+| Stage 10 | Mission Extensions — **planned optional missions** | Linkerd, Argo Rollouts, debugging, Velero, Chaos Mesh as independent labs |
+| Stage 11 | Towards Mars — **planned specializations** | CRDs/operators, KEDA, k3s, Backstage, Kubecost, Cluster API as independent labs |
 
 ---
 
@@ -87,7 +114,7 @@ Apollo11/
 │   │   ├── set3-traefik-dashboard/       # set 2 + Traefik dashboard via IngressRoute — 27/27 verify
 │   │   ├── set4-metallb-traefik/         # set 2 + Service type=LoadBalancer + MetalLB — 26/26 verify
 │   │   └── set5-envoy-gateway/           # Envoy Gateway v1.5.0 + MetalLB              — 29/29 verify
-│   ├── stage3/              # StatefulSets, PVCs, init containers, Headless SVCs
+│   ├── stage3/              # StatefulSets, PVCs, PG entrypoint hook, Headless SVCs
 │   │   ├── README.md
 │   │   ├── code/            # snapshot of stages/stage2/code/  (no code changes)
 │   │   ├── k8s/             # config, serviceaccounts, networkpolicies, apps/, jobs/, gateway/, metallb/
@@ -100,10 +127,10 @@ Apollo11/
 │   ├── stage5/              # Helm chart + Kustomize overlays + GitHub Actions + ArgoCD GitOps module
 │   ├── stage6/              # OTEL SDK + real /metrics + Prometheus + Grafana + Tempo + Loki + Alloy
 │   ├── stage7/              # HPA, VPA, Redis cache, affinity/taints
-│   ├── stage8/              # RBAC, SecurityContext, OPA, Vault
-│   ├── stage9/              # EKS/GKE Terraform provisioning
-│   ├── stage10/             # Linkerd, Argo Rollouts, Chaos Mesh
-│   ├── stage11/             # CRD operator, k3s, KEDA
+│   ├── stage8/              # PLANNED; current code/k8s are untrusted legacy scaffolding
+│   ├── stage9/              # PLANNED; current code/k8s/terraform are untrusted legacy scaffolding
+│   ├── stage10/             # PLANNED optional missions; current files are untrusted legacy scaffolding
+│   ├── stage11/             # PLANNED specializations; current files are untrusted legacy scaffolding
 │   └── eks/                 # Stage 2 set 5 + Stage 3 workloads on AWS EKS (NLB + EBS CSI)
 │       ├── README.md
 │       ├── terraform/       # vpc/, cluster/, storage/, gateway/, network/, ecr.tf
@@ -357,7 +384,7 @@ both build and kind load.
 
 **Status:** ✅ Complete. 130/130 verify checks pass on a fresh kind cluster (43 carried baseline + 87 Stage 4 checks).
 
-**Architecture:** Same 10 workloads as Stage 3 + same Envoy Gateway + MetalLB access stack. This stage adds **probes** (so the kubelet can detect unhealthy pods), **resource governance** with Guaranteed QoS (so the scheduler can place pods predictably and OOM events are bounded), **PodDisruptionBudgets** (so voluntary disruptions can't take down the UI or the flagship booking service), and **graceful SIGTERM shutdown** (so in-flight requests drain cleanly instead of dropping). The Stage 2 set-4 access stack (Envoy + MetalLB) is unchanged.
+**Architecture:** Same 10 workloads as Stage 3 + same Envoy Gateway + MetalLB access stack. This stage adds **probes** (so the kubelet can detect unhealthy pods), **resource governance** with Guaranteed QoS (so the scheduler can place pods predictably and OOM events are bounded), **PodDisruptionBudgets** (so voluntary disruptions can't take down the UI or the flagship booking service), and **graceful SIGTERM shutdown** (so in-flight requests drain cleanly instead of dropping). The Stage 2 set-5 access stack (Envoy + MetalLB) is unchanged.
 
 | Group | Files | What |
 |---|---|---|
@@ -610,7 +637,9 @@ boundary and 59/60/62-resource environment renders validate statically.
 - VPA for search in `Off` recommendation mode; disabled in dev
 - metrics-server v0.8.1 bundle with kind TLS compatibility
 - 2 PriorityClasses; booking/search are critical, notification is low priority
-- Search toleration and preferred node affinity
+- Search toleration and preferred node-affinity syntax. The default lab does
+  not taint a node, and the hostname `Exists` expression matches normal nodes;
+  this does not spread replicas or change scheduling by itself.
 - Both Helm and committed Kustomize delivery paths carry the Stage 7 resources
 
 **Code changes vs stage6:**
@@ -625,17 +654,16 @@ boundary and 59/60/62-resource environment renders validate statically.
 
 **Location:** `stages/stage8/`
 
-**k8s manifest changes:**
-- RBAC: viewer role for passengers, admin role for flight management
-- SecurityContext on all pods: `runAsNonRoot`, `readOnlyRootFilesystem`, `allowPrivilegeEscalation: false`
-- OPA Gatekeeper policies for pod security standards
-- Vault integration for secret management
-- NetworkPolicies tightened further
+**Status:** ⚠️ Planned, not implemented. The current `code/` and partial `k8s/`
+trees are legacy library-management scaffolding and must not be applied or
+copied forward.
 
-**Code changes vs stage7:**
-- Non-root user in all Dockerfiles
-- Service account annotations on pods
-- Trace context propagation fully wired
+**Implementation boundary:** Rebuild from the trusted Stage 7 snapshot. Teach
+security as observable attack/failure → hardening → retest exercises. Sequence
+RBAC and workload SecurityContexts first, then enforce NetworkPolicy with a
+compatible CNI, then add external secrets, admission policy, and image
+scanning. Split those into separate missions if one stage would hide the core
+Kubernetes behavior behind product installation.
 
 ---
 
@@ -693,15 +721,15 @@ boundary and 59/60/62-resource environment renders validate statically.
 
 **Location:** `stages/stage9/`
 
-**New files:**
-- `terraform/` — main.tf with EKS + GKE modules
-- `terraform/modules/eks/` — cluster, node groups
-- `terraform/modules/gke/` — cluster, node pools
-- `terraform/modules/vpc/` — VPC, subnets
-- `terraform/modules/ingress/` — ALB/NLB + Ingress
-- `scripts/deploy.sh` — apply terraform, deploy k8s manifests
+**Status:** ⚠️ Planned, not implemented. Current files are unverified legacy
+scaffolding. The standalone `stages/eks/` tree is a structural prototype, not
+real-account evidence.
 
-**Code changes vs stage8:** None (cloud provisioning only)
+**Implementation boundary:** Choose one provider for the primary lifecycle.
+Provision, identify billable resources, deploy the trusted application, drive
+Pod and node scaling, perform node-failure and upgrade drills, then destroy and
+audit for billable residue. Add GKE afterward as a portability mission; do not
+build two clouds simultaneously. Do not claim HA without failure evidence.
 
 ---
 
@@ -709,14 +737,13 @@ boundary and 59/60/62-resource environment renders validate statically.
 
 **Location:** `stages/stage10/`
 
-**k8s manifest changes:**
-- Linkerd service mesh install + pod annotations
-- Argo Rollouts for booking and search services
-- Canary deployment strategy for search service
-- Chaos Mesh for fault injection on booking service
-- Velero for backup/restore
+**Status:** ⚠️ Planned optional missions. Current files are unverified legacy
+scaffolding.
 
-**Code changes vs stage9:** None (service mesh + progressive delivery)
+Build Linkerd, Argo Rollouts, live debugging/traffic inspection, Velero, and
+Chaos Mesh as independent labs. Each must start from a known-good baseline,
+introduce one mechanism, run an observable experiment, and restore the
+baseline. They are not a mandatory linear prerequisite chain.
 
 ---
 
@@ -724,16 +751,12 @@ boundary and 59/60/62-resource environment renders validate statically.
 
 **Location:** `stages/stage11/`
 
-**New files:**
-- Custom K8s operator for flight status management (Go)
-- KEDA scaledobject for booking service (event-driven scaling based on booking rate)
-- k3s homelab setup guide
-- Backstage integration
+**Status:** ⚠️ Planned optional specializations. Current files are unverified
+legacy scaffolding.
 
-**Code changes vs stage10:**
-- Custom operator for flight status CRD
-- KEDA scaler trigger configured
-- Graceful shutdown fully implemented across all services
+Treat the flight-status CRD/operator, KEDA, k3s, Backstage, Kubecost, and
+Cluster API as independent specializations with their own prerequisites,
+resource/cost budget, failure exercise, verification, and cleanup.
 
 ---
 
@@ -749,10 +772,10 @@ boundary and 59/60/62-resource environment renders validate statically.
 | stage5 | (no code change — packaging layer only) |
 | stage6 | Full `/metrics` endpoint with all required Prometheus metrics. OTEL SDK integrated (traces + metrics). `trace_id` and `span_id` fields already present in logs since launchpad — now propagated through all calls. |
 | stage7 | Search Service: Redis caching (key: `search:{origin}:{destination}:{date}`, TTL 5min). `X-Cache: HIT/MISS` header on search responses. All Go services: graceful shutdown fully implemented. |
-| stage8 | Non-root user in all Dockerfiles. Service account annotations. Trace context propagation fully wired. |
-| stage9 | (no code change — cloud provisioning layer only) |
-| stage10 | (no code change — service mesh + progressive delivery only) |
-| stage11 | Flight status CRD operator. KEDA scaler trigger configured. Graceful shutdown fully implemented across all services. |
+| stage8 | **Planned:** rebuild from Stage 7; no trusted code additions yet |
+| stage9 | **Planned:** cloud lifecycle; no trusted code additions yet |
+| stage10 | **Planned optional missions:** no trusted code additions yet |
+| stage11 | **Planned optional specializations:** no trusted code additions yet |
 
 ---
 
@@ -774,9 +797,11 @@ boundary and 59/60/62-resource environment renders validate statically.
 
 ## Devbox Tools
 
-Currently in devbox.json: docker, k3d, kubectl, helm, skaffold, k9s, terraform, argocd
+Currently in `devbox.json`: kubectl, minikube, k3d, docker, go-task,
+termshot, Helm, Argo CD, kind, Kustomize, k6, Trivy, and OPA.
 
-Needed but missing: kind, kustomize, k6, trivy, opa, kyverno, prometheus, grafana, linkerd, velero, cert-manager, vault, sealed-secrets, loki, otel-collector
+Add future-stage tools only when their lab is implemented and verified; do not
+advertise an uninstalled tool as part of the current learner environment.
 
 ---
 

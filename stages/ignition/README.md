@@ -43,14 +43,16 @@ apollo11-worker2            Ready    worker          v1.28.0
 ### 2. Inspect the cluster
 
 ```bash
-kubectl get componentstatuses    # scheduler, etcd, controller-manager
+kubectl cluster-info
+kubectl get pods -n kube-system  # DNS, network, API support components
 kubectl api-resources            # all available resource types
 ```
 
 ### 3. Run your first Pod imperatively
 
 ```bash
-kubectl run apollo-shell --image=alpine --restart=Never -- sh -c "echo 'hello from k8s'"
+kubectl run apollo-shell --image=alpine --restart=Never -- \
+  sh -c "echo 'hello from k8s' && sleep 3600"
 kubectl get pods
 kubectl logs apollo-shell
 kubectl exec apollo-shell -- cat /etc/os-release
@@ -76,6 +78,7 @@ spec:
 ```
 
 ```bash
+kubectl delete pod apollo-shell  # remove the imperative version first
 kubectl apply -f pod.yaml
 kubectl describe pod apollo-shell
 ```

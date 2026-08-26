@@ -72,7 +72,7 @@ GET /api/search?origin=BOM&destination=SIN&date=...
 ### 2. HPA: HorizontalPodAutoscaler
 
 ```yaml
-apiVersion: autoscaling/v2
+apiVersion: autoscaling.k8s.io/v1
 kind: HorizontalPodAutoscaler
 metadata:
   name: search-hpa
@@ -210,14 +210,16 @@ spec:
 
 The `toleration` lets search land on nodes tainted with
 `workload=search:NoSchedule` — a common pattern in production clusters
-where dedicated node groups host specific workloads. The `nodeAffinity`
-is `preferred` (soft) — search prefers to spread across distinct
-hosts, but will co-locate if necessary.
+where dedicated node groups host specific workloads. The `nodeAffinity` is
+`preferred` (soft). This expression matches the standard hostname label found
+on normal Kubernetes nodes, so it demonstrates the node-affinity wire shape
+without changing placement in the default lab. **It does not spread replicas.**
+Pod anti-affinity or topology spread constraints are the correct tools for
+spreading replicas across hosts.
 
-**On a single-node kind cluster these have no runtime effect.** The
-teaching value is in the manifest: it shows exactly what would ship
-to a multi-node prod cluster. The `--config` patch to give kind 2
-workers + a taint is a Stage 9 (EKS/GKE) concern.
+The lab does not taint a node, so the toleration also has no runtime effect by
+itself. A later scheduling exercise must label and taint concrete workers to
+make both scheduling decisions observable.
 
 ---
 
@@ -314,6 +316,13 @@ kubectl describe vpa search-vpa -n apollo-airlines-apps
 #         Uncapped Target: ...
 ```
 
+> The current lab proves that metrics-server feeds the HPA and that the HPA
+> contract is valid, but it does not yet include a deterministic CPU load test
+> that forces search to scale out and back in. Do not treat an idle `0%/70%`
+> display as proof of scaling behavior. A future learner exercise should add a
+> bounded load generator and record the replica timeline without weakening the
+> production search handler merely to consume CPU.
+
 ---
 
 ## Lessons from this stage (read before changing)
@@ -332,11 +341,12 @@ kubectl describe vpa search-vpa -n apollo-airlines-apps
    search. The `cache.get` and `cache.set` calls have 1s timeouts and
    log warnings on error but never fail the user request.
 
-4. **Affinity/taints on single-node kind are a teaching artifact.**
-   They don't actually do anything on a 1-node cluster, but the
-   manifest is exactly what you'd ship to a multi-node prod cluster.
-   `--config` patch to give kind 2 workers + a taint is a Stage 9
-   (EKS/GKE) concern.
+4. **The default affinity/taint values are a manifest-reading exercise.**
+   The lab does not taint a node, and the preferred hostname expression is
+   satisfied by every normal node, so neither setting changes scheduling by
+   itself. Do not interpret this as replica spreading. A future scheduling lab
+   must label/taint concrete workers and use pod anti-affinity or topology
+   spread constraints so the effect is observable.
 
 5. **metrics-server is NOT installed on a fresh kind cluster.** The
    HPA controller needs it. The chart bundles the upstream manifest

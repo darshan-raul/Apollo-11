@@ -8,7 +8,8 @@ description: "Replace emptyDir with PVCs, convert all 4 stateful workloads (3 PG
 **Goal:** Give stateful workloads permanent storage that survives pod restarts.
 Convert `identity-db`, `flight-db`, `booking-db`, and `redis` from `Deployment` +
 `emptyDir` to **`StatefulSet` + `PersistentVolumeClaim`**, with stable per-pod
-network identity, schema bootstrapping via init containers, and idempotent
+network identity, schema bootstrapping through the official PostgreSQL
+entrypoint hook, and idempotent
 data seeding via one-shot Jobs. The Stage 2 access stack (Envoy Gateway +
 MetalLB) is unchanged.
 

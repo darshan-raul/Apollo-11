@@ -118,7 +118,7 @@ setN-*/
 ### NetworkPolicies
 - Manifests are provided for reference under `k8s/networkpolicies/`
 - **NOT applied by `apply.sh`** — the default `kindnet` CNI does not enforce them
-- See [set 1 README](../set1-baseline/README.md#about-networkpolicies) for the full story
+- See [set 1 README](./set1-baseline/README.md#about-networkpolicies) for the full story
 
 ### Frontend image rebuild
 The VITE\_\* env vars (frontend's API URLs) are baked at build time. Each
@@ -129,25 +129,25 @@ once and it handles both the build and the image load.
 
 ## Set-by-set summary
 
-### [Set 1: Baseline (NodePort)](../set1-baseline/README.md)
+### [Set 1: Baseline (NodePort)](./set1-baseline/README.md)
 **Access pattern:** 5 NodePort services (30080-30084), hit directly from host.
 **Teaches:** Namespace isolation, FQDN service discovery, Headless Service,
 ServiceAccount, NetworkPolicy (as reference).
 
-### [Set 2: Traefik Ingress](../set2-ingress/README.md)
+### [Set 2: Traefik Ingress](./set2-ingress/README.md)
 **Access pattern:** Traefik v3 IngressController (DaemonSet on control-plane)
 listens on NodePort 30443. Host header routing.
 **Teaches:** `Ingress` resource, `IngressClass`, controller selection
 (cluster-scoped, watches Ingresses, creates Traefik config).
 
-### [Set 3: Traefik + dashboard](../set3-traefik-dashboard/README.md)
+### [Set 3: Traefik + dashboard](./set3-traefik-dashboard/README.md)
 **Access pattern:** Same edge access as Set 2; the Traefik dashboard
 itself is exposed at `traefik.apollo.local:30443` via an IngressRoute
 to the controller's internal `api@internal` service.
 **Teaches:** IngressRoute (Traefik CRD), how Ingress can route to
 controller-internal services, what the static config does to Traefik.
 
-### [Set 4: Traefik + MetalLB](../set4-metallb-traefik/README.md)
+### [Set 4: Traefik + MetalLB](./set4-metallb-traefik/README.md)
 **Access pattern:** Same Traefik as Sets 2/3, but the Service is now
 `type: LoadBalancer` and MetalLB v0.14 assigns a real IP from
 172.18.0.50–100. No NodePort, no host-port mapping. The browser hits
@@ -155,7 +155,7 @@ the IP directly via `/etc/hosts` or nip.io.
 **Teaches:** `Service type: LoadBalancer`, MetalLB L2 mode,
 IPAddressPool, L2Advertisement, ARP-based service discovery in kind.
 
-### [Set 5: Envoy Gateway + MetalLB](../set5-envoy-gateway/README.md)
+### [Set 5: Envoy Gateway + MetalLB](./set5-envoy-gateway/README.md)
 **Access pattern:** Envoy Gateway (controller + auto-created Envoy proxy)
 on top of MetalLB. EnvoyProxy sets `envoyService.type: LoadBalancer`
 which lets MetalLB assign a real IP. No NodePort, no port-forward.

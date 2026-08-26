@@ -3,7 +3,7 @@ title: "Apollo11 — Handoff Notes"
 description: "Canonical rolling handoff for the evidence-driven completion of Apollo11 stages after Stage 4."
 ---
 
-# Active completion program (updated 2026-08-25)
+# Active completion program (updated 2026-08-26)
 
 This is the canonical rolling handoff for completing every stage after Stage 4.
 The older sections below are retained as historical context; their completion
@@ -12,12 +12,12 @@ program.
 
 ## Current position
 
-- **Active checkpoint:** Stage 6 is complete; Stage 7 is the next untrusted
+- **Active checkpoint:** Stage 7 is complete; Stage 8 is the next untrusted
   implementation boundary.
-- **Last trusted implementation boundary:** Stage 6, locally verified through
-  clean Helm and Kustomize lifecycles. Hosted CI/image publication and live
-  Stage 6 Argo CD reconciliation remain external checks requiring a Git
-  revision containing the work.
+- **Last trusted implementation boundary:** Stage 7, locally verified through
+  clean Helm/dev, Kustomize/dev, and Helm/staging lifecycles. Hosted
+  CI/image publication and live Argo CD reconciliation remain external checks
+  requiring a Git revision containing the work.
 - **Stage 5 Helm evidence:** ✅ trusted. Clean build/install, **153 passed,
   0 failed**, clean uninstall/purge, and zero namespace/PVC/related-CRD
   residue.
@@ -31,8 +31,13 @@ program.
 - **Stage 6 Argo CD evidence:** static validation passed for dev (58), staging
   (58), prod (60), and shared observability (34) resources. Live reconciliation
   was not fabricated from an uncommitted fixture.
-- **Next checkpoint:** begin Stage 7 only when requested.
-- **Worktree:** Stage 6 completion is intentionally uncommitted.
+- **Stage 7 evidence:** ✅ Helm/dev **210 passed, 0 failed**; Kustomize/dev
+  **199 passed, 0 failed**; Helm/staging **211 passed, 0 failed** with live VPA.
+  All three lifecycles completed clean purges.
+- **Next checkpoint:** redesign and rebuild Stage 8 from the trusted Stage 7
+  snapshot only when requested.
+- **Worktree:** learner-facing documentation corrections from 2026-08-26 are
+  intentionally uncommitted.
 - **Local platform:** Docker 29.5.1, 6 CPUs, ~15.4 GiB memory; no kind clusters
   existed at the start. The stale kubectl context was `kind-strata-dev`.
 
@@ -42,14 +47,11 @@ program.
   repaired and covered by clean lifecycle tests: full plain-manifest
   Kustomize packaging, fatal readiness gates, consistent CI image contracts,
   isolated Argo CD environments, and tested reconciliation/cleanup.
-- Stage 6 code compiles and its chart renders, but it inherits Stage 5 defects,
-  has duplicate `observability` values, and creates `ServiceMonitor` resources
-  without installing a functional Prometheus Operator/CRD stack.
-- Stage 7 code compiles and its chart renders, but it was not tested end to end,
-  inherits the earlier defects, and has duplicate `redis` and `observability`
-  top-level values.
+- Stages 6 and 7 are now trusted through the clean lifecycle evidence above;
+  older audit notes describing them as incomplete are historical only.
 - Stages 8–11 contain legacy library-management code and must be rebuilt from
-  the last verified Apollo Airlines snapshot.
+  the last verified Apollo Airlines snapshot. Their new status READMEs warn
+  learners not to apply the current scaffolding.
 - The standalone EKS stage is a structural prototype, not complete: the AWS
   Load Balancer Controller is modeled as an EKS managed addon while Terraform
   also references an undefined `helm_release.aws_load_balancer_controller`.
@@ -58,9 +60,37 @@ program.
 
 For every stage: static validation -> fresh-cluster apply -> behavior checks ->
 teardown/cleanup -> record exact evidence -> only then update README/AGENTS
-status and copy the snapshot forward.
+status and copy the snapshot forward. For the learner path, also preserve the
+contract: build -> inspect -> break safely -> recover -> explain. Automation is
+the reproducible answer key, not the learner's only interaction.
 
 ## Session log
+
+### 2026-08-26 — learner-journey documentation correction
+
+- Added the missing Launchpad guide with a complete Compose
+  build/inspect/break/recover/persistence lab and an explicit bridge to
+  Kubernetes.
+- Aligned the root stage map with implemented behavior: Stages 1–7 are marked
+  complete, claims for untaught CronJob/sidecar/Downward API/quota/preemption
+  material were removed, and reference-only NetworkPolicy is labeled honestly.
+- Repaired Stage 2 set links and corrected Stage 3's remaining init-container
+  wording.
+- Fixed Ignition's first-Pod sequence so the container remains available for
+  `kubectl exec`, and the imperative Pod is deleted before applying the
+  declarative Pod with otherwise-immutable fields.
+- Corrected Stage 7's VPA example to `autoscaling.k8s.io/v1` and documented
+  that its hostname `Exists` node affinity does not spread replicas or affect
+  default scheduling.
+- Added explicit Stage 8–11 status READMEs. Their current legacy files are not
+  runnable Apollo Airlines stages; Stage 10/11 are framed as optional missions
+  and specializations rather than one mandatory chain.
+- Added the learner-first lab contract to `AGENTS.md`. No workload manifests or
+  runtime behavior changed, so no cluster lifecycle rerun was required.
+- Recorded the remaining Stage 7 learner gap honestly: metrics and HPA
+  configuration are verified, but no deterministic scale-out/scale-in load
+  exercise exists yet. The default affinity/toleration values are likewise
+  syntax-only until a worker is concretely labeled/tainted.
 
 ### 2026-08-25 — Stage 6 completion
 
@@ -329,7 +359,7 @@ evidence above for current status.
 ## Historical Stage 6 claim: static render/compile only, not complete
 
 StatefulSets + 1Gi PVCs for all 4 stateful workloads (3 PostgreSQL + redis).
-Built on top of the Stage 2 set-4 access stack (Envoy Gateway + MetalLB),
+Built on top of the Stage 2 set-5 access stack (Envoy Gateway + MetalLB),
 which **persists unchanged for all later stages** (4–11).
 
 | Metric | Result |

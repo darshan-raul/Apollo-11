@@ -23,6 +23,9 @@ A flight reservation platform with 6 services and 4 infrastructure components:
 
 **Infrastructure:** 3 PostgreSQL databases + 1 Redis
 
+Launchpad also runs Dozzle as an optional log viewer. It is tooling around the
+ten-component application, not an additional Apollo Airlines workload.
+
 The **flagship workflow** — create a booking — spans 4 services and generates a distributed trace that students observe in observability tools:
 
 ```
@@ -60,60 +63,53 @@ Frontend → Booking Service → Identity Service
 
 ---
 
-### Stage 1 : 🚀 Liftoff – All Workloads on Kubernetes ☐ [📖 README](stages/stage1/README.md)
+### Stage 1 : 🚀 Liftoff – All Workloads on Kubernetes ✅ [📖 README](stages/stage1/README.md)
 
-* ☐ Organize workloads using **namespaces** and understand logical isolation within a cluster.
-* ☐ Deploy applications using **ReplicaSets** and **Deployments** and understand their reconciliation behavior.
-* ☐ Launch and manage multiple deployments simultaneously on the cluster.
-* ☐ Access running workloads using **port forwarding** for local testing and debugging.
-* ☐ Run one-time and scheduled tasks using **Jobs** and **CronJobs**.
-* ☐ Externalize configuration using **ConfigMaps** and understand when to use them.
-* ☐ Manage sensitive data securely using Kubernetes **Secrets**.
-* ☐ Design multi-container Pods using **init containers and sidecars** to support application behavior.
+* ✅ Organize all ten workloads in one **namespace**.
+* ✅ Deploy applications with **Deployments** and observe their ReplicaSets and reconciliation behavior.
+* ✅ Give Pods stable endpoints using **Services**.
+* ✅ Run one-time database initialization using **Jobs** and mounted ConfigMaps.
+* ✅ Externalize configuration using **ConfigMaps** and **Secrets**.
+* ✅ Compare ephemeral `emptyDir` storage with the persistence added in Stage 3.
 
 ---
 
-### Stage 2 : 🧭 Guidance, Navigation & Control – Networking ☐ [📖 README](stages/stage2/README.md)
+### Stage 2 : 🧭 Guidance, Navigation & Control – Networking ✅ [📖 README](stages/stage2/README.md)
 
-* ☐ Understand Kubernetes **DNS** and how **service discovery** works inside the cluster.
-* ☐ Learn how Pods communicate with each other and **what networking guarantees Kubernetes requires**.
-* ☐ Expose applications using **Services** and understand ClusterIP, NodePort, and LoadBalancer types.
-* ☐ Control network traffic using **NetworkPolicies** to enforce isolation and security.
-* ☐ Route external traffic into the cluster using **Ingress resources** with **Traefik**.
-* ☐ Understand the role of **kube-proxy** and how CNI plugins implement pod networking.
-* ☐ Use the **Gateway API** as a modern, extensible alternative to traditional Ingress.
+* ✅ Resolve services through Kubernetes **DNS** and inspect cross-namespace routing.
+* ✅ Compare ClusterIP, NodePort, and LoadBalancer **Services**.
+* ✅ Route external traffic through Traefik **Ingress** and Envoy **Gateway API**.
+* ✅ Assign local LoadBalancer addresses with **MetalLB**.
+* ✅ Read reference **NetworkPolicies**; enforcement is deliberately deferred until a NetworkPolicy-capable CNI is introduced.
 
 ---
 
-### Stage 3 : 💾 Mission Data – Persistent Storage ☐ [📖 README](stages/stage3/README.md)
+### Stage 3 : 💾 Mission Data – Persistent Storage ✅ [📖 README](stages/stage3/README.md)
 
-* ☐ Use ephemeral storage options like **emptyDir** and **hostPath** and understand their limitations.
-* ☐ Learn what **Persistent Volumes** are and how storage is abstracted in Kubernetes.
-* ☐ Understand **reclaim policies** and how Kubernetes handles storage after workloads are deleted.
-* ☐ Request storage using **Persistent Volume Claims** and see how binding works.
-* ☐ Use **StorageClasses** to define dynamic provisioning behavior for storage.
-* ☐ Expose Pod and node metadata to applications using the **Downward API**.
-* ☐ Run stateful applications using **StatefulSets** and understand their guarantees.
+* ✅ Replace `emptyDir` databases with **StatefulSets** and per-Pod PVCs.
+* ✅ Inspect **PersistentVolumes**, claims, StorageClasses, and reclaim behavior.
+* ✅ Use headless Services for stable StatefulSet network identity.
+* ✅ Bootstrap PostgreSQL schemas through `/docker-entrypoint-initdb.d/` and seed data with idempotent Jobs.
+* ✅ Delete a database Pod and prove that its data survives.
 
 ---
 
-### Stage 4 : 🎛️ Flight Control Systems ☐ [📖 README](stages/stage4/README.md)
+### Stage 4 : 🎛️ Flight Control Systems ✅ [📖 README](stages/stage4/README.md)
 
-* ☐ Configure **liveness**, **readiness**, and **startup probes** to control workload health.
-* ☐ Define **resource requests** and **limits** to manage CPU and memory consumption.
-* ☐ Understand **Quality of Service (QoS) classes** and how Kubernetes prioritizes Pods under pressure.
-* ☐ Control scheduling behavior using **Pod Priority** and **Preemption**.
-* ☐ Enforce fair usage and prevent resource exhaustion using **resource quotas**.
-* ☐ Use **PodDisruptionBudgets** for safe cluster operations.
+* ✅ Configure distinct **startup**, **liveness**, and **readiness probes**.
+* ✅ Define equal CPU/memory requests and limits and observe **Guaranteed QoS**.
+* ✅ Drain in-flight requests with graceful SIGTERM handling.
+* ✅ Use **PodDisruptionBudgets** to constrain voluntary disruption.
+* ✅ Delete workloads and observe termination, replacement, and recovery behavior.
 
 ---
 
-### Stage 5 : 📦 Mission Payload Integration – Packaging ☐ [📖 README](stages/stage5/README.md)
+### Stage 5 : 📦 Mission Payload Integration – Packaging ✅ [📖 README](stages/stage5/README.md)
 
-* ☐ Package and template Kubernetes manifests using **Helm charts**.
-* ☐ Customize Kubernetes configurations using **Kustomize overlays and patches**.
-* ☐ Build **CI/CD pipelines** to test and deploy applications automatically using **GitHub Actions**.
-* ☐ Implement **GitOps** workflows using **Argo CD** to manage deployments declaratively.
+* ✅ Package and template the verified platform using **Helm**.
+* ✅ Compare Helm with committed **Kustomize** overlays for dev, staging, and prod.
+* ✅ Validate and publish images through **GitHub Actions** CI.
+* ✅ Reconcile isolated environments through an optional **Argo CD** GitOps module.
 
 ---
 
@@ -130,14 +126,14 @@ Frontend → Booking Service → Identity Service
 
 ### Stage 7 : 🛰️ Orbital Maneuvering – Scaling ✅ [📖 README](stages/stage7/README.md)
 
-* ✅ Automatically scale workloads using **Horizontal Pod Autoscaler (HPA)**.
+* ✅ Configure a CPU-based **Horizontal Pod Autoscaler (HPA)** and inspect its live metrics and decisions.
 * ✅ Generate recommendation-only resource guidance using **Vertical Pod Autoscaler (VPA)**.
 * ✅ Add Redis cache-aside behavior with observable HIT/MISS responses.
-* ✅ Control scheduling using **PriorityClasses**, tolerations, and node affinity.
+* ✅ Inspect **PriorityClasses**, tolerations, and node affinity; the default lab values do not yet change Pod placement.
     
 ---
 
-### Stage 8 : 🔐 Command Module Hardening – Security ☐ [📖 README](stages/stage8/README.md)
+### Stage 8 : 🔐 Command Module Hardening – Security ⚠️ Planned [📖 status](stages/stage8/README.md)
 
 * ☐ Implement fine-grained access control using **Role-Based Access Control (RBAC)**.
 * ☐ Secure Pods using **SecurityContext** (runAsNonRoot, readOnlyRootFilesystem).
@@ -149,19 +145,19 @@ Frontend → Booking Service → Identity Service
 
 ---
 
-### Stage 9 : 🌕 Lunar Orbit – Cloud Deployment ☐ [📖 README](stages/stage9/README.md)
+### Stage 9 : 🌕 Lunar Orbit – Cloud Deployment ⚠️ Planned [📖 status](stages/stage9/README.md)
 
-* ☐ Deploy Kubernetes clusters on **EKS** and **GKE** using **Terraform**.
+* ☐ Provision one primary cloud lifecycle with **Terraform**, then compare a second provider as a portability mission.
 * ☐ Scale cluster nodes dynamically using **Cluster Autoscaler**.
 * ☐ Load test applications using **k6** to validate performance.
 * ☐ Distribute workloads evenly using **topology spread constraints**.
 * ☐ **Perform safe Kubernetes cluster upgrades**.
 * ☐ Protect availability during disruptions using **Pod Disruption Budgets**.
-* ☐ Design and operate a **truly highly available Kubernetes cluster**.
+* ☐ Prove **high availability** through controlled node-failure and recovery drills.
 
 ---
 
-### Stage 10 : 🧪 Mission Extensions ☐ [📖 README](stages/stage10/README.md)
+### Stage 10 : 🧪 Mission Extensions ⚠️ Planned [📖 status](stages/stage10/README.md)
 
 * ☐ Hook into Pod and container lifecycle events using **lifecycle hooks**.
 * ☐ Implement a **service mesh** using **Linkerd** for traffic management and security.
@@ -174,7 +170,7 @@ Frontend → Booking Service → Identity Service
 
 ---
 
-### Stage 11 : 🚀 Towards Mars ☐ [📖 README](stages/stage11/README.md)
+### Stage 11 : 🚀 Towards Mars ⚠️ Planned [📖 status](stages/stage11/README.md)
 
 * ☐ Design and implement custom **CRDs** and **Kubernetes operators**.
 * ☐ Extend the Kubernetes API server with custom functionality.
@@ -183,6 +179,19 @@ Frontend → Booking Service → Identity Service
 * ☐ Build internal developer platforms using **Backstage**.
 * ☐ Analyze and optimize cluster costs using **Kubecost**.
 * ☐ Manage clusters declaratively using **Cluster API**.
+
+---
+
+## How to use the labs
+
+Completed stages provide automation because the platform is large and every
+snapshot must remain reproducible. Treat `apply.sh` and `verify.sh` as the
+installer and answer key. The learning happens in each README's manual
+inspection and failure exercises: observe the new behavior, break it safely,
+recover it, and only then run the full verifier.
+
+Pass counts show that the repository is internally consistent; they do not
+replace being able to explain what Kubernetes did and which evidence proved it.
 
 ---
 
@@ -273,14 +282,14 @@ Each stage is independently runnable. Each stage's `code/` directory is a self-c
 |---|---|
 | Launchpad | Stub code with `/healthz`, `/readyz`, `/metrics`, structured logging. Frontend: React/Tailwind CSS with VITE env vars for API URLs. |
 | Stage 1–3 | k8s manifest evolution only, code unchanged |
-| Stage 4 | Add `/healthz/startup`, `/healthz/live`, `/healthz/ready` handlers + SIGTERM graceful shutdown. Frontend: Go stub replaced with React/Tailwind app. |
+| Stage 4 | Add `/healthz/startup`, `/healthz/live`, `/healthz/ready` handlers + SIGTERM graceful shutdown. Frontend remains the React/Tailwind snapshot served by NGINX. |
 | Stage 5 | Packaging only, code unchanged |
 | Stage 6 | Full `/metrics` + OTEL SDK integrated |
 | Stage 7 | Search gets Redis caching (X-Cache header) |
-| Stage 8 | Non-root Dockerfiles, service accounts |
-| Stage 9 | Cloud provisioning, code unchanged |
-| Stage 10 | Service mesh + progressive delivery |
-| Stage 11 | CRD operator, KEDA autoscaling |
+| Stage 8 | **Planned:** rebuild from Stage 7 with observable RBAC, workload-hardening, network-policy, secrets, admission-policy, and image-scanning exercises |
+| Stage 9 | **Planned:** one primary cloud lifecycle with scaling, node failure, upgrade, cost, and teardown drills |
+| Stage 10 | **Planned optional missions:** service mesh, progressive delivery, debugging, backup/restore, chaos |
+| Stage 11 | **Planned optional specializations:** operator/CRD, KEDA, k3s, Backstage, Kubecost, Cluster API |
 
 ---
 
@@ -311,7 +320,7 @@ Each stage is independently runnable. Each stage's `code/` directory is a self-c
 | Ingress Controller | Traefik |
 | Packaging | Helm |
 | Patching | Kustomize |
-| Logging | Fluentd, Loki |
+| Logging | Grafana Alloy, Loki |
 | Service Mesh | Linkerd |
 | Monitoring | Prometheus, Grafana |
 | Policy Engine | OPA |
