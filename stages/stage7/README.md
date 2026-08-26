@@ -1,37 +1,39 @@
 ---
-title: "Stage 7: Orbital Maneuvering — HPA + VPA + Redis cache + PriorityClass + affinity/taints"
-description: "Add horizontal autoscaling (HPA), vertical pod autoscaling recommendations (VPA Off mode), Redis-backed cache-aside on the search service, two PriorityClasses, and node-affinity/tolerations on search. Built on Stage 6 (OTEL + Prometheus + Grafana + Tempo + Loki)."
+title: "Stage 7: Orbital Maneuvering — HPA + VPA + Redis cache + practical scheduling"
+description: "Add HPA, recommendation-only VPA, Redis cache-aside, PriorityClasses, and an observable taint, affinity, and topology-spread exercise."
 ---
 
 # Stage 7: Orbital Maneuvering
 
-**Status:** Complete and fresh-cluster verified on 2026-08-25.
+**Status:** Complete; practical scaling closure verified on 2026-08-26.
 
 | Delivery path | Result |
 |---|---|
-| Helm/dev | **210/210** checks passed, followed by a clean purge |
-| Kustomize/dev | **199/199** checks passed, followed by a clean purge |
-| Helm/staging | **211/211** checks passed with live VPA, followed by a clean purge |
+| Helm/dev | **211/211** checks + practical scaling lab, followed by a clean purge |
+| Kustomize/dev | **200/200** checks, followed by a clean purge |
+| Helm/staging | **211/211** checks with live VPA on 2026-08-25; current render validates statically |
 
-All purges left zero Apollo namespaces, PVCs, Stage 7 controllers, or related
-CRDs. Production Helm/Kustomize renders also validate locally. The staging
-lifecycle verifies the live VPA controllers and recommendation-only resource.
+Both refreshed dev purges left zero Apollo namespaces, PVCs, Stage 7
+controllers, related CRDs, lab Deployments, worker labels, or taints. Production
+and staging Helm/Kustomize renders validate locally; Argo CD static validation
+passes for all three environments plus shared observability.
 
 **Goal:** make Apollo Airlines **elastic and cache-friendly**. The search
 service — the highest-traffic read path in the system — gains horizontal
 auto-scaling on CPU, recommendation-mode vertical auto-scaling, a Redis
 cache-aside layer, two PriorityClasses for scheduling priority, and
-node-level scheduling constraints (toleration + nodeAffinity). The result
+node-level scheduling behavior (toleration + node affinity + topology spread).
+The result
 is a service that can ride out traffic spikes without manual intervention.
 
 | | |
 |---|---|
-| **New concept** | HorizontalPodAutoscaler (HPA), VerticalPodAutoscaler (VPA) in `Off` mode, cache-aside pattern, PriorityClass, node affinity, tolerations, `X-Cache` HTTP header |
-| **Workloads changed** | 1 (search) — Redis cache + new metrics + priorityClassName + toleration + nodeAffinity. Booking + notification: `priorityClassName` only. |
+| **New concept** | HPA, VPA in `Off` mode, cache-aside, PriorityClass, taint/toleration, node affinity, topology spread, `X-Cache` |
+| **Workloads changed** | search — Redis cache, metrics, priority, toleration, affinity, topology spread. Booking + notification — priority only. |
 | **Workloads unchanged** | identity, flight, frontend, all StatefulSets, seed Jobs, NetworkPolicies, ServiceAccounts, ConfigMap, Secret, observability stack |
 | **New cluster resources** | 2 PriorityClasses, 1 HPA, metrics-server, and—outside dev—1 recommendation-only VPA with recommender/updater controllers |
 | **Code changes** | search service: Redis client with bounded startup and lazy recovery, cache GET/SET, cache metrics, `X-Cache: HIT/MISS`, OTEL child spans, and clean shutdown |
-| **Verification** | Helm/dev **210/210**; Kustomize/dev **199/199**; Helm/staging **211/211** |
+| **Verification** | Helm/dev **211/211** + scale 1→3→1 across 2 workers; Kustomize/dev **200/200** |
 
 ---
 
@@ -187,7 +189,7 @@ Wired into the Deployments:
 - `notification` → `priorityClassName: apollo-airlines-app-low` (background fan-out)
 - `identity` + `flight` + `frontend` → no priorityClassName (default = 0, middle)
 
-### 5. Affinity / Tolerations on search
+### 5. Observable scheduling: toleration, node affinity, and topology spread
 
 ```yaml
 spec:
@@ -204,22 +206,31 @@ spec:
             - weight: 100
               preference:
                 matchExpressions:
-                  - key: kubernetes.io/hostname
-                    operator: Exists
+                  - key: apollo11.io/search-pool
+                    operator: In
+                    values: [dedicated]
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: kubernetes.io/hostname
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector:
+            matchLabels:
+              app: search
 ```
 
 The `toleration` lets search land on nodes tainted with
 `workload=search:NoSchedule` — a common pattern in production clusters
-where dedicated node groups host specific workloads. The `nodeAffinity` is
-`preferred` (soft). This expression matches the standard hostname label found
-on normal Kubernetes nodes, so it demonstrates the node-affinity wire shape
-without changing placement in the default lab. **It does not spread replicas.**
-Pod anti-affinity or topology spread constraints are the correct tools for
-spreading replicas across hosts.
+where dedicated node groups host specific workloads. The soft node affinity
+prefers a worker labeled `apollo11.io/search-pool=dedicated`; it does not make
+that worker mandatory if it is unavailable. The topology-spread constraint
+then asks the scheduler to keep search replicas balanced across eligible
+hostnames with `maxSkew: 1` while retaining `ScheduleAnyway` as a local-lab
+escape hatch.
 
-The lab does not taint a node, so the toleration also has no runtime effect by
-itself. A later scheduling exercise must label and taint concrete workers to
-make both scheduling decisions observable.
+`scripts/scaling-lab.sh` makes all three policies observable. It labels and
+taints one worker, restarts search, drives HPA scale-out, proves the resulting
+replicas span at least two workers, observes scale-in, and removes the temporary
+node metadata.
 
 ---
 
@@ -246,7 +257,7 @@ The 4 Go services and 1 Python service were unchanged except search:
 | `templates/autoscaling/search-vpa.yaml` | NEW | VPA behind `if .Values.vpa.search.enabled` |
 | `templates/autoscaling/metrics-server-install.yaml` | NEW | Renders the bundled metrics-server manifest |
 | `templates/autoscaling/vpa-install.yaml` | NEW | Renders the recommender/updater bundle outside dev |
-| `templates/apps/search.yaml` | Modify | + `priorityClassName`, `tolerations`, `nodeAffinity`, `env REDIS_URL` |
+| `templates/apps/search.yaml` | Modify | + priority, toleration, node affinity, topology spread, `env REDIS_URL` |
 | `templates/apps/booking.yaml` | Modify | + `priorityClassName: apollo-airlines-app-critical` |
 | `templates/apps/notification.yaml` | Modify | + `priorityClassName: apollo-airlines-app-low` |
 | `values.yaml` | Modify | + `priorityClasses`, `autoscaling`, `vpa`, `redis` blocks |
@@ -264,6 +275,7 @@ The 4 Go services and 1 Python service were unchanged except search:
 
 - `scripts/apply.sh`: mode-aware Helm/Kustomize installer; pre-installs metrics-server and, outside dev, VPA before submitting their dependent resources.
 - `scripts/verify.sh`: Stage 6 contract plus Stage 7 HPA, VPA, priority, scheduling, MISS→HIT, TTL, and cache-metric checks.
+- `scripts/scaling-lab.sh`: reversible worker label/taint plus real HTTP load; proves HPA scale-out, topology spread, and scale-in.
 - `scripts/teardown.sh`: removes Stage 7 controllers symmetrically; `--purge` also removes namespaces, PVCs, access-stack resources, and related CRDs.
 
 ---
@@ -316,12 +328,25 @@ kubectl describe vpa search-vpa -n apollo-airlines-apps
 #         Uncapped Target: ...
 ```
 
-> The current lab proves that metrics-server feeds the HPA and that the HPA
-> contract is valid, but it does not yet include a deterministic CPU load test
-> that forces search to scale out and back in. Do not treat an idle `0%/70%`
-> display as proof of scaling behavior. A future learner exercise should add a
-> bounded load generator and record the replica timeline without weakening the
-> production search handler merely to consume CPU.
+Run the practical scaling and scheduling exercise after the normal verifier:
+
+```bash
+bash scripts/scaling-lab.sh
+```
+
+The script requires the recommended Ignition cluster with at least two workers.
+It prints the search Pod-to-node mapping and an HPA timeline. For a short,
+reliable local demonstration it temporarily changes the HPA CPU target from
+70% to 10% and the scale-down window from 300s to 30s. It does **not** alter the
+search handler or fake CPU consumption: four short-lived in-cluster clients
+make real HTTP requests. An exit trap restores the original HPA policy, deletes
+the load generator, and removes the worker label and taint even on failure.
+
+If a previous run was forcibly terminated before its trap ran:
+
+```bash
+bash scripts/scaling-lab.sh cleanup
+```
 
 ---
 
@@ -341,12 +366,12 @@ kubectl describe vpa search-vpa -n apollo-airlines-apps
    search. The `cache.get` and `cache.set` calls have 1s timeouts and
    log warnings on error but never fail the user request.
 
-4. **The default affinity/taint values are a manifest-reading exercise.**
-   The lab does not taint a node, and the preferred hostname expression is
-   satisfied by every normal node, so neither setting changes scheduling by
-   itself. Do not interpret this as replica spreading. A future scheduling lab
-   must label/taint concrete workers and use pod anti-affinity or topology
-   spread constraints so the effect is observable.
+4. **Affinity chooses candidates; topology spread balances replicas.**
+   A toleration permits search onto the tainted worker but does not require it.
+   The soft node affinity prefers that labeled worker, while topology spread
+   scores eligible hostnames to keep `maxSkew: 1`. The scaling lab applies and
+   removes the concrete node metadata so these are runtime behaviors, not inert
+   YAML examples.
 
 5. **metrics-server is NOT installed on a fresh kind cluster.** The
    HPA controller needs it. The chart bundles the upstream manifest

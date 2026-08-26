@@ -220,11 +220,10 @@ apps:
     port: 8083
     # HPA manages replicas at runtime; this is the floor.
     replicas: 2
-    # Stage 7: app-critical priority + node scheduling preferences
-    # (toleration + nodeAffinity). On a multi-node cluster the
-    # toleration lets search land on nodes tainted with
-    # `workload=search:NoSchedule`; the nodeAffinity prefers
-    # spreading across distinct hosts when more than one is available.
+    # Stage 7: app-critical priority + observable scheduling policy.
+    # scripts/scaling-lab.sh labels and taints one worker. Search can tolerate
+    # that taint and prefers the labeled worker, while topology spread keeps
+    # replicas balanced across eligible hostnames when capacity allows.
     priorityClassName: apollo-airlines-app-critical
     tolerations:
       - key: workload
@@ -237,8 +236,16 @@ apps:
           - weight: 100
             preference:
               matchExpressions:
-                - key: kubernetes.io/hostname
-                  operator: Exists
+                - key: apollo11.io/search-pool
+                  operator: In
+                  values: [dedicated]
+    topologySpreadConstraints:
+      - maxSkew: 1
+        topologyKey: kubernetes.io/hostname
+        whenUnsatisfiable: ScheduleAnyway
+        labelSelector:
+          matchLabels:
+            app: search
     dependsOn: []
   notification:
     tier: low

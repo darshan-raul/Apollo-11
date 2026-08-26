@@ -409,6 +409,7 @@ if [[ "$MODE" == "helm" ]]; then
     step "8/8 Summary"
     ok "Apollo Airlines Stage 7 installed via Helm"
     echo "  Run 'bash scripts/verify.sh --mode helm' to run the verify suite"
+    echo "  Run 'bash scripts/scaling-lab.sh' for the practical HPA + scheduling lab"
     echo "  Run 'bash scripts/teardown.sh --mode helm' to uninstall"
 
 elif [[ "$MODE" == "kustomize" ]]; then
@@ -493,6 +494,7 @@ EOF
 
     ok "Apollo Airlines Stage 7 installed via kustomize ($ENV)"
     echo "  Run 'bash scripts/verify.sh --mode kustomize' to run the verify suite"
+    echo "  Run 'bash scripts/scaling-lab.sh' for the practical HPA + scheduling lab"
     echo "  Run 'bash scripts/teardown.sh --mode kustomize' to remove"
 else
     fail "unknown mode: $MODE (expected helm or kustomize)"

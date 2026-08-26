@@ -129,7 +129,8 @@ Frontend → Booking Service → Identity Service
 * ✅ Configure a CPU-based **Horizontal Pod Autoscaler (HPA)** and inspect its live metrics and decisions.
 * ✅ Generate recommendation-only resource guidance using **Vertical Pod Autoscaler (VPA)**.
 * ✅ Add Redis cache-aside behavior with observable HIT/MISS responses.
-* ✅ Inspect **PriorityClasses**, tolerations, and node affinity; the default lab values do not yet change Pod placement.
+* ✅ Run a reversible scheduling lab using **PriorityClasses**, a worker taint,
+  toleration, node affinity, and topology spread.
     
 ---
 

@@ -31,13 +31,13 @@ program.
 - **Stage 6 Argo CD evidence:** static validation passed for dev (58), staging
   (58), prod (60), and shared observability (34) resources. Live reconciliation
   was not fabricated from an uncommitted fixture.
-- **Stage 7 evidence:** ✅ Helm/dev **210 passed, 0 failed**; Kustomize/dev
-  **199 passed, 0 failed**; Helm/staging **211 passed, 0 failed** with live VPA.
-  All three lifecycles completed clean purges.
+- **Stage 7 evidence:** ✅ Helm/dev **211 passed, 0 failed** plus practical
+  scale **1→3→1** across both workers; Kustomize/dev **200 passed, 0 failed**.
+  Both refreshed lifecycles completed clean purges with zero lab residue. The
+  earlier Helm/staging **211 passed, 0 failed** evidence covers live VPA.
 - **Next checkpoint:** redesign and rebuild Stage 8 from the trusted Stage 7
   snapshot only when requested.
-- **Worktree:** learner-facing documentation corrections from 2026-08-26 are
-  intentionally uncommitted.
+- **Worktree:** Stage 7 practical-scaling closure is intentionally uncommitted.
 - **Local platform:** Docker 29.5.1, 6 CPUs, ~15.4 GiB memory; no kind clusters
   existed at the start. The stale kubectl context was `kind-strata-dev`.
 
@@ -66,6 +66,26 @@ the reproducible answer key, not the learner's only interaction.
 
 ## Session log
 
+### 2026-08-26 — Stage 7 practical scaling and scheduling closure
+
+- Replaced the inert hostname-`Exists` affinity with a soft preference for
+  `apollo11.io/search-pool=dedicated` and added hostname topology spread with
+  `maxSkew: 1`; regenerated the Helm-free Kustomize base.
+- Added `scripts/scaling-lab.sh`. It labels and taints one worker, uses the
+  existing search image for bounded in-cluster HTTP load, temporarily tunes the
+  HPA for a short lab, prints the replica timeline and Pod-to-node placement,
+  then restores the HPA and removes the load Deployment, label, and taint.
+- The first live attempt exposed a malformed JSON merge patch before load was
+  created. Corrected the shared apply/restore patch and proved the explicit
+  cleanup path restores `70% / 300s`.
+- The successful live run scaled search **1→3→1**, observed replicas on
+  `apollo11-worker` and `apollo11-worker2`, and left no temporary annotation,
+  Deployment, worker label, or taint.
+- Helm/dev passed **211/211** and Kustomize/dev passed **200/200**. Both paths
+  completed full purges; the final residue audit found no Apollo namespaces,
+  PVCs, related CRDs, or lab node metadata. Argo CD static validation passed
+  for dev 59, staging 60, prod 62, and shared observability 34 resources.
+
 ### 2026-08-26 — learner-journey documentation correction
 
 - Added the missing Launchpad guide with a complete Compose
@@ -87,10 +107,8 @@ the reproducible answer key, not the learner's only interaction.
   and specializations rather than one mandatory chain.
 - Added the learner-first lab contract to `AGENTS.md`. No workload manifests or
   runtime behavior changed, so no cluster lifecycle rerun was required.
-- Recorded the remaining Stage 7 learner gap honestly: metrics and HPA
-  configuration are verified, but no deterministic scale-out/scale-in load
-  exercise exists yet. The default affinity/toleration values are likewise
-  syntax-only until a worker is concretely labeled/tainted.
+- This gap was closed later the same day by the Stage 7 practical scaling and
+  scheduling work recorded above.
 
 ### 2026-08-25 — Stage 6 completion
 

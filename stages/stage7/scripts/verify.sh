@@ -655,8 +655,17 @@ if [[ "$STAGE7_EXPECTED" == "true" ]]; then
     done
     toleration=$(kubectl get deployment search -n apollo-airlines-apps -o jsonpath='{.spec.template.spec.tolerations[?(@.key=="workload")].value}' 2>/dev/null || echo "")
     [[ "$toleration" == "search" ]] && pass "search tolerates workload=search" || fail "search toleration value=$toleration"
-    affinity_weight=$(kubectl get deployment search -n apollo-airlines-apps -o jsonpath='{.spec.template.spec.affinity.nodeAffinity.preferredDuringSchedulingIgnoredDuringExecution[0].weight}' 2>/dev/null || echo "")
-    [[ "$affinity_weight" == "100" ]] && pass "search node-affinity weight=100" || fail "search node-affinity weight=$affinity_weight"
+    affinity_key=$(kubectl get deployment search -n apollo-airlines-apps -o jsonpath='{.spec.template.spec.affinity.nodeAffinity.preferredDuringSchedulingIgnoredDuringExecution[0].preference.matchExpressions[0].key}' 2>/dev/null || echo "")
+    affinity_value=$(kubectl get deployment search -n apollo-airlines-apps -o jsonpath='{.spec.template.spec.affinity.nodeAffinity.preferredDuringSchedulingIgnoredDuringExecution[0].preference.matchExpressions[0].values[0]}' 2>/dev/null || echo "")
+    [[ "$affinity_key" == "apollo11.io/search-pool" && "$affinity_value" == "dedicated" ]] && \
+        pass "search prefers apollo11.io/search-pool=dedicated" || \
+        fail "search affinity is $affinity_key=$affinity_value"
+    spread_key=$(kubectl get deployment search -n apollo-airlines-apps -o jsonpath='{.spec.template.spec.topologySpreadConstraints[0].topologyKey}' 2>/dev/null || echo "")
+    spread_skew=$(kubectl get deployment search -n apollo-airlines-apps -o jsonpath='{.spec.template.spec.topologySpreadConstraints[0].maxSkew}' 2>/dev/null || echo "")
+    spread_mode=$(kubectl get deployment search -n apollo-airlines-apps -o jsonpath='{.spec.template.spec.topologySpreadConstraints[0].whenUnsatisfiable}' 2>/dev/null || echo "")
+    [[ "$spread_key" == "kubernetes.io/hostname" && "$spread_skew" == "1" && "$spread_mode" == "ScheduleAnyway" ]] && \
+        pass "search topology spread is hostname/maxSkew=1/ScheduleAnyway" || \
+        fail "search topology spread is key=$spread_key skew=$spread_skew mode=$spread_mode"
 
     step "Stage 7 Redis cache behavior and metrics"
     search_pod=$(kubectl get pod -n apollo-airlines-apps -l app=search -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || echo "")

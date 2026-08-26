@@ -47,6 +47,12 @@ fail() { echo -e "${RED}✗ $1${NC}"; exit 1; }
 
 step "Tearing down (mode: $MODE, env: $ENV, purge: $PURGE)"
 
+# Recover any interrupted practical scaling lab before removing its HPA and
+# workloads. This also removes the temporary worker label and taint.
+if [[ -x "$SCRIPT_DIR/scaling-lab.sh" ]]; then
+    "$SCRIPT_DIR/scaling-lab.sh" cleanup >/dev/null 2>&1 || true
+fi
+
 if [[ "$MODE" == "helm" ]]; then
     if helm list -n apollo-airlines-apps 2>/dev/null | grep -q "$RELEASE_NAME"; then
         step "Helm uninstall"

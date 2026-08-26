@@ -47,7 +47,7 @@ stage where the effect can be demonstrated.
 | Stage 4 | Flight Control | Probes, resource limits, QoS, PodDisruptionBudget |
 | Stage 5 | Payload Integration | Helm chart (full access stack), Kustomize overlays (dev/staging/prod), GitHub Actions CI, **ArgoCD GitOps module** (AppProject + 3 Applications) |
 | Stage 6 | Mission Ops | Prometheus, Grafana, OpenTelemetry |
-| Stage 7 | Orbital Maneuvering | HPA, VPA, Redis cache, taints/tolerations, affinity |
+| Stage 7 | Orbital Maneuvering | HPA, VPA, Redis cache, PriorityClass, reversible taint/toleration + affinity + topology-spread lab |
 | Stage 8 | Command Module — **planned** | Observable RBAC, workload hardening, enforced NetworkPolicy, secrets, admission policy, image scanning |
 | Stage EKS | Cloud Target — EKS — **prototype** | Structurally reviewed AWS prototype; not yet trusted by a real-account apply/verify/destroy lifecycle |
 | Stage 9 | Lunar Orbit — **planned** | One primary cloud lifecycle, node scaling/failure, upgrades, cost and teardown; GKE as a later portability mission |
@@ -126,7 +126,7 @@ Apollo11/
 │   │   └── scripts/         # apply.sh, teardown.sh, verify.sh (130 checks), build-images.sh
 │   ├── stage5/              # Helm chart + Kustomize overlays + GitHub Actions + ArgoCD GitOps module
 │   ├── stage6/              # OTEL SDK + real /metrics + Prometheus + Grafana + Tempo + Loki + Alloy
-│   ├── stage7/              # HPA, VPA, Redis cache, affinity/taints
+│   ├── stage7/              # HPA/VPA, Redis cache, practical scheduling lab
 │   ├── stage8/              # PLANNED; current code/k8s are untrusted legacy scaffolding
 │   ├── stage9/              # PLANNED; current code/k8s/terraform are untrusted legacy scaffolding
 │   ├── stage10/             # PLANNED optional missions; current files are untrusted legacy scaffolding
@@ -626,20 +626,21 @@ Dev and staging auto-converge on git push; prod is human-gated and pins the imag
 
 **Location:** `stages/stage7/`
 
-**Status:** ✅ Complete and locally verified (2026-08-25). Helm/dev passed
-**210/210**, Kustomize/dev passed **199/199**, and Helm/staging passed
-**211/211** with live VPA. Every path completed a full purge with no Apollo
-namespace, PVC, Stage 7 controller, or related-CRD residue. The Argo CD tenant
-boundary and 59/60/62-resource environment renders validate statically.
+**Status:** ✅ Complete. On 2026-08-26 Helm/dev passed **211/211**, the
+practical lab scaled search **1→3→1** across both workers and restored all
+temporary state, and Kustomize/dev passed **200/200**. Both refreshed paths
+completed clean purges. The earlier Helm/staging **211/211** live-VPA evidence
+still applies; current dev/staging/prod and Argo CD renders validate statically.
 
 **k8s and packaging changes:**
 - HPA for search: default 2–10 replicas at 70% CPU; dev 1–3; prod 3–20 at 60%
 - VPA for search in `Off` recommendation mode; disabled in dev
 - metrics-server v0.8.1 bundle with kind TLS compatibility
 - 2 PriorityClasses; booking/search are critical, notification is low priority
-- Search toleration and preferred node-affinity syntax. The default lab does
-  not taint a node, and the hostname `Exists` expression matches normal nodes;
-  this does not spread replicas or change scheduling by itself.
+- Search tolerates `workload=search:NoSchedule`, softly prefers
+  `apollo11.io/search-pool=dedicated`, and uses hostname topology spread with
+  `maxSkew: 1`. `scripts/scaling-lab.sh` applies the concrete worker metadata,
+  proves cross-worker placement during HPA scale-out, and removes it afterward.
 - Both Helm and committed Kustomize delivery paths carry the Stage 7 resources
 
 **Code changes vs stage6:**
@@ -817,7 +818,7 @@ advertise an uninstalled tool as part of the current learner environment.
 | Stage 4 | ✅ Complete | Probes (startup/live/ready) on 6 apps, Guaranteed QoS on all 10 pods, PDBs for booking + frontend, graceful SIGTERM on all backends, frontend build-time URLs, 130/130 verify |
 | Stage 5 | ✅ Complete locally | Helm 153/153, Kustomize 142/142, Argo CD 74/74; all clean lifecycle tests passed. Hosted Actions/GHCR publication awaits the next push/tag. |
 | Stage 6 | ✅ Complete locally | Helm 190/190 and Kustomize dev 180/180; full metrics/traces/logs behavior and clean purges verified. Argo CD's 4-Application layout validates statically; live reconciliation awaits the next explicitly authorized Git revision. |
-| Stage 7 | ✅ Complete locally | Helm/dev 210/210, Kustomize/dev 199/199, and Helm/staging 211/211 with live VPA; clean purges passed. Argo boundaries/renders validate statically; live Argo reconciliation awaits a Git revision containing this work. |
+| Stage 7 | ✅ Complete locally | Helm/dev 211/211 + practical scale 1→3→1 across 2 workers; Kustomize/dev 200/200; clean purges and zero lab residue. Earlier Helm/staging 211/211 proved live VPA; current renders validate statically. |
 | Stage 8–11 | ⚠️ Pending | Legacy scaffolding exists, but none is a trusted Apollo Airlines implementation boundary yet. |
 
 ---

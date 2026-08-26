@@ -1897,9 +1897,18 @@ spec:
           preferredDuringSchedulingIgnoredDuringExecution:
           - preference:
               matchExpressions:
-              - key: kubernetes.io/hostname
-                operator: Exists
+              - key: apollo11.io/search-pool
+                operator: In
+                values:
+                - dedicated
             weight: 100
+      topologySpreadConstraints:
+        - labelSelector:
+            matchLabels:
+              app: search
+          maxSkew: 1
+          topologyKey: kubernetes.io/hostname
+          whenUnsatisfiable: ScheduleAnyway
       terminationGracePeriodSeconds: 30
       containers:
         - name: search
