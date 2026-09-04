@@ -7,6 +7,9 @@ description: "Status and intended modular shape for advanced Kubernetes speciali
 
 > **Status: not implemented. Do not apply the files currently in this directory.**
 
+The approved specialization catalog is defined in
+[`ROADMAP.md`](../../ROADMAP.md).
+
 The existing files contain unverified legacy library-management scaffolding.
 They are not compatible with the trusted Apollo Airlines stages.
 

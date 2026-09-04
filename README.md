@@ -2,7 +2,14 @@
 
 ![logo](./images/apollo11-project-logo.png)
 
-**Apollo Airlines** — A cloud-native flight management system built across 13 stages, teaching you the full Kubernetes ecosystem from Docker Compose to custom operators.
+**Apollo Airlines** — A cloud-native flight management system built across 13
+phases, teaching a beginner to build, inspect, break, recover, and explain a
+production-shaped Kubernetes platform.
+
+The approved curriculum architecture and the old-to-new migration plan live in
+[ROADMAP.md](ROADMAP.md). The stage list below reports the **current repository
+state**; target moves are not marked complete until their replacement labs pass
+a clean lifecycle verification.
 
 ![tools](./images/apollo11-flavor2-project.drawio.png)
 
@@ -38,7 +45,12 @@ Frontend → Booking Service → Identity Service
 
 ---
 
-## Stages
+## Current stage status
+
+Apollo11 is being migrated toward the target roadmap one verified phase at a
+time. Launchpad through Stage 7 remain the current runnable spine. Stage 8 is a
+clean rebuild, Stage 9 is the AWS/EKS cloud capstone, and Stages 10–11 are
+optional mission catalogs.
 
 ### 🧱 Launchpad – Docker Compose ✅ [📖 README](stages/launchpad/README.md)
 
@@ -134,47 +146,54 @@ Frontend → Booking Service → Identity Service
     
 ---
 
-### Stage 8 : 🔐 Command Module Hardening – Security ⚠️ Planned [📖 status](stages/stage8/README.md)
+### Stage 8 : 🔐 Command Module Hardening – Security ⚠️ Planned [📖 roadmap](ROADMAP.md)
 
-* ☐ Implement fine-grained access control using **Role-Based Access Control (RBAC)**.
-* ☐ Secure Pods using **SecurityContext** (runAsNonRoot, readOnlyRootFilesystem).
-* ☐ Use **hardened container images** to minimize the attack surface.
-* ☐ Authenticate workloads using **Service Accounts**.
-* ☐ Store and manage secrets securely using **Vault** as an external key store.
-* ☐ Enforce baseline security standards using **OPA Gatekeeper** or **Kyverno**.
-* ☐ Scan container images using **Trivy**.
+The target Stage 8 is a clean rebuild from the verified Stage 7 Helm baseline;
+the existing Stage 8 tree does not inherit implementation trust.
+
+* ☐ Enforce workload identity, least-privilege **RBAC**, restricted Pod Security
+  Admission, and hardened container defaults.
+* ☐ Replace kindnet with **Calico** and prove default-deny and least-privilege
+  **NetworkPolicy** behavior.
+* ☐ Deliver and rotate external secrets using **Vault** and the **External
+  Secrets Operator**.
+* ☐ Enforce admission and supply-chain policy with **Kyverno**, **Trivy**, and
+  **Cosign**.
 
 ---
 
 ### Stage 9 : 🌕 Lunar Orbit – Cloud Deployment ⚠️ Planned [📖 status](stages/stage9/README.md)
 
-* ☐ Provision one primary cloud lifecycle with **Terraform**, then compare a second provider as a portability mission.
-* ☐ Scale cluster nodes dynamically using **Cluster Autoscaler**.
-* ☐ Load test applications using **k6** to validate performance.
-* ☐ Distribute workloads evenly using **topology spread constraints**.
-* ☐ **Perform safe Kubernetes cluster upgrades**.
-* ☐ Protect availability during disruptions using **Pod Disruption Budgets**.
-* ☐ Prove **high availability** through controlled node-failure and recovery drills.
+* ☐ Build an incremental **Terraform** lifecycle for AWS networking, **EKS**,
+  ECR, storage, identity, and platform add-ons.
+* ☐ Deploy the latest hardened Helm snapshot with real DNS and automated TLS.
+* ☐ Exercise Pod and node scaling with **Cluster Autoscaler**.
+* ☐ Reuse topology and disruption controls during node-failure and drain drills.
+* ☐ Perform a controlled Kubernetes upgrade with behavioral pre/post checks.
+* ☐ Prove backup and restore with **Velero**.
+* ☐ Audit cost, ownership-scoped teardown, and residual resources.
+* ☐ Complete an EKS-to-GKE portability analysis; hands-on GKE remains optional.
 
 ---
 
 ### Stage 10 : 🧪 Mission Extensions ⚠️ Planned [📖 status](stages/stage10/README.md)
 
-* ☐ Hook into Pod and container lifecycle events using **lifecycle hooks**.
-* ☐ Implement a **service mesh** using **Linkerd** for traffic management and security.
-* ☐ Perform **progressive deployments** using **Argo Rollouts**.
-* ☐ Use **Kubeshark** to analyze packets and service traffic.
-* ☐ Debug running Pods using **ephemeral containers** without restarting workloads.
-* ☐ Build a full **DevSecOps pipeline** integrating security into delivery.
-* ☐ Implement backup and restore strategies using **Velero**.
-* ☐ Introduce controlled failures using **Chaos Mesh** to test resilience.
+This is an optional catalog, not a linear stage that every learner must finish.
+
+* ☐ Implement a **service mesh** using **Linkerd**.
+* ☐ Perform progressive delivery using **Argo Rollouts**.
+* ☐ Debug with **ephemeral containers** and inspect traffic with **Kubeshark**.
+* ☐ Introduce controlled failures using **Chaos Mesh**.
+* ☐ Extend the required Velero exercise into advanced disaster recovery.
 
 ---
 
 ### Stage 11 : 🚀 Towards Mars ⚠️ Planned [📖 status](stages/stage11/README.md)
 
+This is an optional specialization catalog. Each track declares its own
+prerequisites and can be completed independently.
+
 * ☐ Design and implement custom **CRDs** and **Kubernetes operators**.
-* ☐ Extend the Kubernetes API server with custom functionality.
 * ☐ Build a **homelab using k3s** and expose services securely.
 * ☐ Implement event-driven autoscaling using **KEDA**.
 * ☐ Build internal developer platforms using **Backstage**.
@@ -251,6 +270,7 @@ docker compose up
 Apollo11/
 ├── SPEC.md                   # Full API contracts, service schemas, endpoints
 ├── README.md                 # This file
+├── ROADMAP.md                # Approved curriculum and migration matrix
 ├── AGENTS.md                 # Agent context for AI assistants
 │
 ├── stages/
@@ -268,12 +288,14 @@ Apollo11/
 │   │   ├── scripts/
 │   │   └── code/
 │   │
-│   ├── stage2–stage11/       # (scope defined in SPEC.md)
+│   ├── stage2–stage11/       # Current snapshots; target scope in ROADMAP.md
 │   │
 └── test/                     # Automated verification scripts per stage
 ```
 
-Each stage is independently runnable. Each stage's `code/` directory is a self-contained snapshot that copies the previous stage's code and adds its additions.
+Each large phase keeps one independently runnable snapshot. Under the target
+structure, substages use ordered manifests, patches, or scripts instead of
+duplicating the full snapshot.
 
 ---
 
@@ -287,9 +309,9 @@ Each stage is independently runnable. Each stage's `code/` directory is a self-c
 | Stage 5 | Packaging only, code unchanged |
 | Stage 6 | Full `/metrics` + OTEL SDK integrated |
 | Stage 7 | Search gets Redis caching (X-Cache header) |
-| Stage 8 | **Planned:** rebuild from Stage 7 with observable RBAC, workload-hardening, network-policy, secrets, admission-policy, and image-scanning exercises |
-| Stage 9 | **Planned:** one primary cloud lifecycle with scaling, node failure, upgrade, cost, and teardown drills |
-| Stage 10 | **Planned optional missions:** service mesh, progressive delivery, debugging, backup/restore, chaos |
+| Stage 8 | **Planned clean rebuild:** Stage 7 baseline → RBAC/PSA/hardening → Calico policy → Vault/ESO → Kyverno + Trivy/Cosign |
+| Stage 9 | **Planned:** AWS/EKS lifecycle with DNS/TLS, scaling, node failure, upgrade, Velero restore, cost, and teardown drills |
+| Stage 10 | **Planned optional missions:** service mesh, progressive delivery, debugging, traffic inspection, chaos, advanced DR |
 | Stage 11 | **Planned optional specializations:** operator/CRD, KEDA, k3s, Backstage, Kubecost, Cluster API |
 
 ---
@@ -315,19 +337,25 @@ Each stage is independently runnable. Each stage's `code/` directory is a self-c
 | SQL Database | PostgreSQL |
 | NoSQL Database | Redis |
 | CI | GitHub Actions |
-| GitOps | ArgoCD |
+| GitOps | Argo CD |
 | Progressive Deployment | Argo Rollouts |
-| Secret Store | Vault |
+| Secret Delivery | Vault, External Secrets Operator |
 | Ingress Controller | Traefik |
+| Gateway API | Envoy Gateway, MetalLB |
+| Network Policy | Calico |
 | Packaging | Helm |
 | Patching | Kustomize |
 | Logging | Grafana Alloy, Loki |
+| Tracing | OpenTelemetry, Tempo |
 | Service Mesh | Linkerd |
 | Monitoring | Prometheus, Grafana |
-| Policy Engine | OPA |
+| Policy Engine | Kyverno |
+| Supply Chain | Trivy, Cosign |
+| TLS | cert-manager |
 | Backup and Restore | Velero |
 | Load Testing | k6 |
-| Cluster Provisioning | Terraform |
+| Cloud and Provisioning | AWS, EKS, ECR, Terraform |
 | Chaos Engineering | Chaos Mesh |
-| Autoscaling | HPA, VPA, KEDA |
+| Autoscaling | HPA, VPA, Cluster Autoscaler, KEDA |
+| Traffic Inspection | Kubeshark |
 | Custom Controllers | Kubernetes Operators |

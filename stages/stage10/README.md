@@ -7,6 +7,8 @@ description: "Status and intended modular shape for advanced Apollo Airlines ope
 
 > **Status: not implemented. Do not apply the files currently in this directory.**
 
+The approved mission catalog is defined in [`ROADMAP.md`](../../ROADMAP.md).
+
 The existing files contain unverified legacy scaffolding from a different
 application. Stage 10 will be rebuilt from the last trusted Apollo Airlines
 snapshot.
@@ -16,9 +18,12 @@ independently runnable missions:
 
 - service mesh and mTLS with Linkerd;
 - progressive delivery with Argo Rollouts;
-- live debugging with ephemeral containers and traffic inspection;
-- backup and restore with Velero; and
+- live debugging with ephemeral containers and Kubeshark traffic inspection;
+- advanced disaster recovery building on the required Stage 9 Velero lab; and
 - controlled failure experiments with Chaos Mesh.
+
+Lifecycle hooks move to Stage 4, and the baseline DevSecOps pipeline moves to
+Stage 8. They are not introduced here as new concepts.
 
 Each mission must begin with a working baseline, introduce one mechanism, run
 an observable experiment, and return the cluster to the baseline. A learner

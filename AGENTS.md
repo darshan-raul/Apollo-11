@@ -6,6 +6,10 @@ Apollo11 is a **13-phase Kubernetes/cloud-native learning bootstrap** using **Ap
 
 **Target learner:** someone with basic Linux knowledge, no prior k8s or cloud-native experience required.
 
+**Curriculum authority:** [`ROADMAP.md`](ROADMAP.md) defines the approved target
+sequence and old-to-new migration. The stage READMEs and the map below describe
+the current implementation until each replacement passes a clean lifecycle.
+
 ---
 
 ## Learner-First Lab Contract
@@ -35,7 +39,7 @@ stage where the effect can be demonstrated.
 
 ---
 
-## Stage Map
+## Current Implementation Map
 
 | Phase | Name | Focus |
 |---|---|---|
@@ -48,11 +52,35 @@ stage where the effect can be demonstrated.
 | Stage 5 | Payload Integration | Helm chart (full access stack), Kustomize overlays (dev/staging/prod), GitHub Actions CI, **ArgoCD GitOps module** (AppProject + 3 Applications) |
 | Stage 6 | Mission Ops | Prometheus, Grafana, OpenTelemetry |
 | Stage 7 | Orbital Maneuvering | HPA, VPA, Redis cache, PriorityClass, reversible taint/toleration + affinity + topology-spread lab |
-| Stage 8 | Command Module — **planned** | Observable RBAC, workload hardening, enforced NetworkPolicy, secrets, admission policy, image scanning |
+| Stage 8 | Command Module — **clean rebuild planned** | Stage 7 baseline → RBAC/PSA/hardening → Calico NetworkPolicy → Vault/ESO → Kyverno + Trivy/Cosign |
 | Stage EKS | Cloud Target — EKS — **prototype** | Structurally reviewed AWS prototype; not yet trusted by a real-account apply/verify/destroy lifecycle |
-| Stage 9 | Lunar Orbit — **planned** | One primary cloud lifecycle, node scaling/failure, upgrades, cost and teardown; GKE as a later portability mission |
-| Stage 10 | Mission Extensions — **planned optional missions** | Linkerd, Argo Rollouts, debugging, Velero, Chaos Mesh as independent labs |
+| Stage 9 | Lunar Orbit — **planned** | Terraform + AWS/EKS lifecycle, DNS/TLS, node scaling/failure, upgrades, Velero restore, cost and teardown; required GKE portability analysis |
+| Stage 10 | Mission Extensions — **planned optional missions** | Linkerd, Argo Rollouts, debugging, Kubeshark, Chaos Mesh, and advanced DR as independent labs |
 | Stage 11 | Towards Mars — **planned specializations** | CRDs/operators, KEDA, k3s, Backstage, Kubecost, Cluster API as independent labs |
+
+---
+
+## Approved Target Remap
+
+The phase count remains 13. The required linear path is Launchpad through Stage
+9; Stages 10 and 11 are optional mission catalogs. The main moves are:
+
+- rolling updates and rollback move into Stage 1;
+- Stage 2 becomes an internal-networking and edge-access progression, with
+  Traefik transitional, Envoy canonical, local TLS added, and inert future
+  resources deferred;
+- scheduling moves from Stage 7 into Stage 4 beside resources and disruption;
+- Stage 5 is ordered as Helm → Kustomize comparison → CI/GHCR → Argo CD;
+- Stage 6 is ordered as metrics → dashboards → alerts/SLO → logs → traces →
+  correlation;
+- Stage 7 becomes k6 baseline → measurable cache → HPA → VPA;
+- Stage 8 is rebuilt cleanly using the selected security toolchain;
+- Stage 9 is the real AWS/EKS capstone, including restore and teardown proof;
+- lifecycle hooks and the DevSecOps pipeline move out of Stage 10 to Stages 4
+  and 8, while one required Velero exercise moves into Stage 9.
+
+Do not update implementation-status claims merely because a target is recorded
+in the roadmap.
 
 ---
 
@@ -88,6 +116,7 @@ stage where the effect can be demonstrated.
 Apollo11/
 ├── SPEC.md                   # Full API contracts, DB schemas, endpoints (Apollo Airlines)
 ├── README.md                 # Top-level stage map
+├── ROADMAP.md                # Approved target curriculum + migration matrix
 ├── AGENTS.md                 # This file
 │
 ├── stages/
@@ -127,7 +156,7 @@ Apollo11/
 │   ├── stage5/              # Helm chart + Kustomize overlays + GitHub Actions + ArgoCD GitOps module
 │   ├── stage6/              # OTEL SDK + real /metrics + Prometheus + Grafana + Tempo + Loki + Alloy
 │   ├── stage7/              # HPA/VPA, Redis cache, practical scheduling lab
-│   ├── stage8/              # PLANNED; current code/k8s are untrusted legacy scaffolding
+│   ├── stage8/              # PLANNED CLEAN REBUILD; current tree is not trusted input
 │   ├── stage9/              # PLANNED; current code/k8s/terraform are untrusted legacy scaffolding
 │   ├── stage10/             # PLANNED optional missions; current files are untrusted legacy scaffolding
 │   ├── stage11/             # PLANNED specializations; current files are untrusted legacy scaffolding
@@ -139,7 +168,11 @@ Apollo11/
 └── test/                     # Automated verification scripts per stage
 ```
 
-**Key design principle:** Each stage's `code/` is a self-contained snapshot. Stage N+1 copies Stage N's code and adds its additions. This keeps every stage independently runnable.
+**Key design principle:** Each large phase has one independently runnable
+snapshot. Ordered substages use manifests, patches, or scripts rather than full
+snapshot copies. During migration, the currently runnable snapshot remains
+available until its replacement passes a clean lifecycle; Stage 8 is the
+approved exception and receives no trust inheritance.
 
 ---
 
@@ -655,22 +688,33 @@ still applies; current dev/staging/prod and Argo CD renders validate statically.
 
 **Location:** `stages/stage8/`
 
-**Status:** ⚠️ Planned, not implemented. The current `code/` and partial `k8s/`
-trees are legacy library-management scaffolding and must not be applied or
-copied forward.
+**Status:** ⚠️ Clean rebuild planned. The current tree does not inherit
+implementation trust and must not be copied forward, even where experimental
+Apollo Airlines files exist.
 
-**Implementation boundary:** Rebuild from the trusted Stage 7 snapshot. Teach
-security as observable attack/failure → hardening → retest exercises. Sequence
-RBAC and workload SecurityContexts first, then enforce NetworkPolicy with a
-compatible CNI, then add external secrets, admission policy, and image
-scanning. Split those into separate missions if one stage would hide the core
-Kubernetes behavior behind product installation.
+**Implementation boundary:** Retire the current tree before replacement design,
+then rebuild from the trusted Stage 7 Helm snapshot. The ordered substages are:
+
+1. observable RBAC, Pod Security Admission, workload ServiceAccounts, non-root
+   images, seccomp, dropped capabilities, and read-only filesystems;
+2. Calico plus enforced NetworkPolicy allow/deny experiments;
+3. Vault plus External Secrets Operator bootstrap, rotation, failure, and
+   recovery; and
+4. Kyverno audit/enforce policy, Trivy CI gates, Cosign signatures, and
+   admission rejection of unsigned images.
 
 ---
 
 ### Stage EKS (Cloud Target — EKS)
 
 **Location:** `stages/eks/`
+
+**Trust warning:** This tree is research input only. It is based on Stage 2 set
+5 plus Stage 3 rather than the latest hardened platform, and it has no verified
+real-account lifecycle. Known blockers include an unresolved load-balancer
+controller Terraform reference, invalid frontend/DNS routing assumptions, a
+broken teardown script path, and an EBS sweep whose region-wide scope is unsafe.
+Do not run its teardown scripts as a trusted cleanup path.
 
 **New files:**
 - `terraform/network/` — `terraform-aws-modules/vpc/aws`, `10.0.0.0/16`, 2 public + 2 private subnets, 1 NAT in AZ-0 (saves $33/mo)
@@ -691,7 +735,9 @@ Kubernetes behavior behind product installation.
 - `scripts/verify.sh` — ~40 checks across 5 groups (cluster+addons, StatefulSets+PVCs+EBS PVs, deployments, NLB+Envoy, end-to-end + PVC persistence demo)
 - `scripts/ebs-sweep.sh` — delete orphaned EBS volumes left over from interrupted destroys
 
-**Status:** Stage EKS defines the EKS deployment shape for Stage 2 set 5 + Stage 3. The TF and scripts were not yet applied to a real AWS account from this build environment; structural correctness was verified by reading the Stage 2 set 5 and Stage 3 scripts/manifests to preserve apply/teardown ordering verbatim.
+**Status:** Stage EKS records an early EKS deployment shape for Stage 2 set 5 +
+Stage 3. It is neither structurally nor behaviorally trusted and must be rebuilt
+for Stage 9 rather than promoted in place.
 
 **Key design choices:**
 
@@ -726,11 +772,12 @@ Kubernetes behavior behind product installation.
 scaffolding. The standalone `stages/eks/` tree is a structural prototype, not
 real-account evidence.
 
-**Implementation boundary:** Choose one provider for the primary lifecycle.
-Provision, identify billable resources, deploy the trusted application, drive
-Pod and node scaling, perform node-failure and upgrade drills, then destroy and
-audit for billable residue. Add GKE afterward as a portability mission; do not
-build two clouds simultaneously. Do not claim HA without failure evidence.
+**Implementation boundary:** AWS/EKS is the primary lifecycle. Build incremental
+Terraform modules, identify billable resources, deploy the latest hardened Helm
+snapshot, add DNS/TLS, drive Pod and node scaling, perform node-failure and
+upgrade drills, prove a Velero restore, then destroy and audit for billable
+residue. Require an EKS-to-GKE portability analysis; hands-on GKE remains
+optional. Do not build two clouds simultaneously or claim HA without evidence.
 
 ---
 
@@ -741,8 +788,8 @@ build two clouds simultaneously. Do not claim HA without failure evidence.
 **Status:** ⚠️ Planned optional missions. Current files are unverified legacy
 scaffolding.
 
-Build Linkerd, Argo Rollouts, live debugging/traffic inspection, Velero, and
-Chaos Mesh as independent labs. Each must start from a known-good baseline,
+Build Linkerd, Argo Rollouts, live debugging/traffic inspection, Chaos Mesh, and
+advanced disaster recovery as independent labs. Each must start from a known-good baseline,
 introduce one mechanism, run an observable experiment, and restore the
 baseline. They are not a mandatory linear prerequisite chain.
 
@@ -773,8 +820,8 @@ resource/cost budget, failure exercise, verification, and cleanup.
 | stage5 | (no code change — packaging layer only) |
 | stage6 | Full `/metrics` endpoint with all required Prometheus metrics. OTEL SDK integrated (traces + metrics). `trace_id` and `span_id` fields already present in logs since launchpad — now propagated through all calls. |
 | stage7 | Search Service: Redis caching (key: `search:{origin}:{destination}:{date}`, TTL 5min). `X-Cache: HIT/MISS` header on search responses. All Go services: graceful shutdown fully implemented. |
-| stage8 | **Planned:** rebuild from Stage 7; no trusted code additions yet |
-| stage9 | **Planned:** cloud lifecycle; no trusted code additions yet |
+| stage8 | **Planned clean rebuild:** retire the current tree, then rebuild from Stage 7; no trusted code additions yet |
+| stage9 | **Planned:** AWS/EKS cloud lifecycle from the hardened Helm baseline; no trusted code additions yet |
 | stage10 | **Planned optional missions:** no trusted code additions yet |
 | stage11 | **Planned optional specializations:** no trusted code additions yet |
 
@@ -819,7 +866,8 @@ advertise an uninstalled tool as part of the current learner environment.
 | Stage 5 | ✅ Complete locally | Helm 153/153, Kustomize 142/142, Argo CD 74/74; all clean lifecycle tests passed. Hosted Actions/GHCR publication awaits the next push/tag. |
 | Stage 6 | ✅ Complete locally | Helm 190/190 and Kustomize dev 180/180; full metrics/traces/logs behavior and clean purges verified. Argo CD's 4-Application layout validates statically; live reconciliation awaits the next explicitly authorized Git revision. |
 | Stage 7 | ✅ Complete locally | Helm/dev 211/211 + practical scale 1→3→1 across 2 workers; Kustomize/dev 200/200; clean purges and zero lab residue. Earlier Helm/staging 211/211 proved live VPA; current renders validate statically. |
-| Stage 8–11 | ⚠️ Pending | Legacy scaffolding exists, but none is a trusted Apollo Airlines implementation boundary yet. |
+| Stage 8 | ⚠️ Clean rebuild pending | Current worktree is not a trusted input; replacement starts from verified Stage 7 Helm. |
+| Stage 9–11 | ⚠️ Pending | Prototype or legacy scaffolding exists, but none is a trusted implementation boundary yet. |
 
 ---
 
@@ -858,7 +906,7 @@ The Booking Service is the primary vehicle for teaching distributed systems conc
 - Stage 4: Reliable restarts with probes
 - Stage 6: OTEL tracing across service boundaries
 - Stage 7: Redis caching on search (downstream of booking workflow)
-- Stage 9: Load testing with k6
+- Stage 7: Load testing with k6 before caching and autoscaling comparisons
 - Stage 10: Chaos injection + service mesh fault injection
 
 ---
