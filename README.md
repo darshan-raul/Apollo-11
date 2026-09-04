@@ -59,7 +59,10 @@ optional mission catalogs.
 * ☑️ Write **Dockerfiles** and build container images using best practices and layering principles.
 * ☑️ Use **Docker Compose** to run and wire together multiple containers locally.
 * ☑️ Learn **YAML** syntax and structure as the foundation for Kubernetes configuration files.
-* ☑️ Verify all services have `/healthz`, `/readyz`, `/metrics` endpoints
+* ☑️ Run all six application images as non-root with read-only root filesystems.
+* ☑️ Keep local credentials out of Git using `.env` and a committed `.env.example` contract.
+* ☑️ Verify all services have `/healthz`, dependency-aware `/readyz`, and Prometheus-compatible `/metrics` endpoints.
+* ☑️ Break Flight PostgreSQL and observe readiness propagate through Search and Booking before recovery.
 * ☑️ Modern React/Tailwind CSS frontend with environment-based API configuration
 
 ---

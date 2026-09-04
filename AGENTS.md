@@ -219,6 +219,22 @@ approved exception and receives no trust inheritance.
 
 **Infrastructure init:** PostgreSQL init scripts via `/docker-entrypoint-initdb.d/` pattern.
 
+**Current Launchpad hardening and evidence:**
+
+- all 6 application images declare non-root runtime users;
+- Compose gives application containers read-only root filesystems, `/tmp`
+  tmpfs mounts, `no-new-privileges`, and drops all capabilities;
+- `.env.example` defines the local credential contract and `.env` is ignored;
+- Dozzle is behind the optional `tools` profile because Docker socket access is
+  privileged even with a read-only bind mount;
+- Booking forwards the passenger JWT to Identity and uses a short-lived
+  `SERVICE` JWT for Flight seat mutations;
+- Flight, Search, and Booking expose dependency-aware readiness, and all six
+  applications expose minimal Prometheus text metrics; and
+- `scripts/verify.sh` passes 73 checks covering profiles, container hardening,
+  endpoints, a reversible booking, and request-ID evidence. The manual database
+  outage and persistence labs remain required learner interactions.
+
 ---
 
 ### Stage 1 (Liftoff)
@@ -857,7 +873,7 @@ advertise an uninstalled tool as part of the current learner environment.
 
 | Phase | Status | Details |
 |---|---|---|
-| Launchpad | ✅ Complete | React/Tailwind frontend, Docker Compose, 10 components |
+| Launchpad | ✅ Complete | 10 default workloads, non-root/read-only app containers, dependency-aware readiness, Prometheus text endpoints, reversible flagship workflow, 73/73 verify |
 | Ignition | ✅ Complete | kind cluster, first Pod, kubectl basics |
 | Stage 1 | ✅ Complete | All 10 components as Deployments + Jobs, single namespace `apollo-airlines` |
 | Stage 2 | ✅ Complete | 5 manifest sets verified: NodePort 25/25, Traefik Ingress 26/26, Traefik+dashboard 27/27, Traefik+MetalLB 26/26, Envoy Gateway+MetalLB 29/29. Version sweep chose Envoy Gateway v1.5.0. NOTES.md documents the methodology + caveats. |

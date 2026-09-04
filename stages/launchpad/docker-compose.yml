@@ -13,7 +13,19 @@ services:
     ports:
       - "3000:3000"
     environment:
-      - PORT=3000
+      PORT: "3000"
+    read_only: true
+    tmpfs:
+      - /tmp
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "-", "http://127.0.0.1:3000/healthz"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
     networks:
       - apollo-airlines
 
@@ -26,9 +38,21 @@ services:
     ports:
       - "8080:8080"
     environment:
-      - DATABASE_URL=postgresql://postgres:postgres@identity-db:5432/identity
-      - JWT_SECRET=apollo-airlines-dev-secret
-      - PORT=8080
+      DATABASE_URL: postgresql://${POSTGRES_USER:?Copy .env.example to .env}:${POSTGRES_PASSWORD:?Copy .env.example to .env}@identity-db:5432/identity
+      JWT_SECRET: ${JWT_SECRET:?Copy .env.example to .env}
+      PORT: "8080"
+    read_only: true
+    tmpfs:
+      - /tmp
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8080/readyz', timeout=2)"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
     depends_on:
       identity-db:
         condition: service_healthy
@@ -43,9 +67,9 @@ services:
       timeout: 5s
       retries: 10
     environment:
-      - POSTGRES_USER=postgres
-      - POSTGRES_PASSWORD=postgres
-      - POSTGRES_DB=identity
+      POSTGRES_USER: ${POSTGRES_USER:?Copy .env.example to .env}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Copy .env.example to .env}
+      POSTGRES_DB: identity
     volumes:
       - type: volume
         source: identity-db-data
@@ -65,10 +89,21 @@ services:
     ports:
       - "8081:8081"
     environment:
-      - DATABASE_URL=postgresql://postgres:postgres@flight-db:5432/flight
-      - JWT_SECRET=apollo-airlines-dev-secret
-      - PORT=8081
-    command: sh -c 'DATABASE_URL="postgresql://postgres:postgres@flight-db:5432/flight" /app/flight-service'
+      DATABASE_URL: postgresql://${POSTGRES_USER:?Copy .env.example to .env}:${POSTGRES_PASSWORD:?Copy .env.example to .env}@flight-db:5432/flight
+      JWT_SECRET: ${JWT_SECRET:?Copy .env.example to .env}
+      PORT: "8081"
+    read_only: true
+    tmpfs:
+      - /tmp
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "-", "http://127.0.0.1:8081/readyz"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
     depends_on:
       flight-db:
         condition: service_healthy
@@ -83,9 +118,9 @@ services:
       timeout: 5s
       retries: 10
     environment:
-      - POSTGRES_USER=postgres
-      - POSTGRES_PASSWORD=postgres
-      - POSTGRES_DB=flight
+      POSTGRES_USER: ${POSTGRES_USER:?Copy .env.example to .env}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Copy .env.example to .env}
+      POSTGRES_DB: flight
     volumes:
       - type: volume
         source: flight-db-data
@@ -105,15 +140,32 @@ services:
     ports:
       - "8082:8082"
     environment:
-      - DATABASE_URL=postgresql://postgres:postgres@booking-db:5432/booking
-      - FLIGHT_SERVICE_URL=http://flight:8081
-      - IDENTITY_SERVICE_URL=http://identity:8080
-      - NOTIFICATION_SERVICE_URL=http://notification:8084
-      - JWT_SECRET=apollo-airlines-dev-secret
-      - PORT=8082
-    command: sh -c 'DATABASE_URL="postgresql://postgres:postgres@booking-db:5432/booking" /app/booking-service'
+      DATABASE_URL: postgresql://${POSTGRES_USER:?Copy .env.example to .env}:${POSTGRES_PASSWORD:?Copy .env.example to .env}@booking-db:5432/booking
+      FLIGHT_SERVICE_URL: http://flight:8081
+      IDENTITY_SERVICE_URL: http://identity:8080
+      NOTIFICATION_SERVICE_URL: http://notification:8084
+      JWT_SECRET: ${JWT_SECRET:?Copy .env.example to .env}
+      PORT: "8082"
+    read_only: true
+    tmpfs:
+      - /tmp
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "-", "http://127.0.0.1:8082/readyz"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
     depends_on:
       booking-db:
+        condition: service_healthy
+      flight:
+        condition: service_healthy
+      identity:
+        condition: service_healthy
+      notification:
         condition: service_healthy
     networks:
       - apollo-airlines
@@ -126,9 +178,9 @@ services:
       timeout: 5s
       retries: 10
     environment:
-      - POSTGRES_USER=postgres
-      - POSTGRES_PASSWORD=postgres
-      - POSTGRES_DB=booking
+      POSTGRES_USER: ${POSTGRES_USER:?Copy .env.example to .env}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Copy .env.example to .env}
+      POSTGRES_DB: booking
     volumes:
       - type: volume
         source: booking-db-data
@@ -148,10 +200,23 @@ services:
     ports:
       - "8083:8083"
     environment:
-      - FLIGHT_SERVICE_URL=http://flight:8081
-      - PORT=8083
+      FLIGHT_SERVICE_URL: http://flight:8081
+      PORT: "8083"
+    read_only: true
+    tmpfs:
+      - /tmp
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "-", "http://127.0.0.1:8083/readyz"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
     depends_on:
-      - flight
+      flight:
+        condition: service_healthy
     networks:
       - apollo-airlines
 
@@ -164,8 +229,20 @@ services:
     ports:
       - "8084:8084"
     environment:
-      - REDIS_URL=redis://redis:6379
-      - PORT=8084
+      REDIS_URL: redis://redis:6379
+      PORT: "8084"
+    read_only: true
+    tmpfs:
+      - /tmp
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "-", "http://127.0.0.1:8084/readyz"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
     depends_on:
       redis:
         condition: service_healthy
@@ -186,7 +263,7 @@ services:
   # ─── Dozzle Log Viewer ──────────────────────────────────────────────────────
   dozzle:
     image: amir20/dozzle:latest
-    container_name: dozzle
+    profiles: ["tools"]
     restart: always
     ports:
       - "8085:8080"
@@ -194,6 +271,7 @@ services:
       - type: bind
         source: /var/run/docker.sock
         target: /var/run/docker.sock
+        read_only: true
     networks:
       - apollo-airlines
 

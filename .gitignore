@@ -5,3 +5,7 @@ venv
 
 node_modules
 **/dist/
+
+# Local runtime secrets. Commit only documented examples.
+**/.env
+!**/.env.example

@@ -39,15 +39,15 @@ func logJSON(level, service, message, traceID, spanID string, extra ...map[strin
 }
 
 type SearchResult struct {
-	ID            string `json:"id"`
-	FlightNumber  string `json:"flightNumber"`
-	Origin        string `json:"origin"`
-	Destination   string `json:"destination"`
-	DepartureTime string `json:"departureTime"`
-	ArrivalTime   string `json:"arrivalTime"`
-	Duration      int    `json:"duration"`
-	AvailableSeats int   `json:"availableSeats"`
-	Status        string `json:"status"`
+	ID             string `json:"id"`
+	FlightNumber   string `json:"flightNumber"`
+	Origin         string `json:"origin"`
+	Destination    string `json:"destination"`
+	DepartureTime  string `json:"departureTime"`
+	ArrivalTime    string `json:"arrivalTime"`
+	Duration       int    `json:"duration"`
+	AvailableSeats int    `json:"availableSeats"`
+	Status         string `json:"status"`
 }
 
 func getEnv(key, fallback string) string {
@@ -59,6 +59,19 @@ func getEnv(key, fallback string) string {
 
 func generateRequestID() string {
 	return uuid.New().String()
+}
+
+func flightReady() error {
+	client := &http.Client{Timeout: 2 * time.Second}
+	resp, err := client.Get(flightServiceURL + "/readyz")
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return fmt.Errorf("flight readiness returned HTTP %d", resp.StatusCode)
+	}
+	return nil
 }
 
 func main() {
@@ -91,16 +104,24 @@ func main() {
 	})
 
 	r.GET("/readyz", func(c *gin.Context) {
+		if err := flightReady(); err != nil {
+			c.JSON(http.StatusServiceUnavailable, gin.H{"status": "error", "detail": "Flight service not ready"})
+			return
+		}
 		c.JSON(http.StatusOK, gin.H{"status": "ok"})
 	})
 
 	r.GET("/metrics", func(c *gin.Context) {
-		c.JSON(http.StatusOK, gin.H{
-			"service":                  "search",
-			"http_requests_total":       0,
-			"http_request_duration_ms": 0,
-			"db_connections_active":     0,
-		})
+		c.Data(http.StatusOK, "text/plain; version=0.0.4; charset=utf-8", []byte(`# HELP http_requests_total Total HTTP requests observed by the service.
+# TYPE http_requests_total counter
+http_requests_total{service="search"} 0
+# HELP http_request_duration_ms Most recently observed request duration in milliseconds.
+# TYPE http_request_duration_ms gauge
+http_request_duration_ms{service="search"} 0
+# HELP db_connections_active Active database connections owned by the service.
+# TYPE db_connections_active gauge
+db_connections_active{service="search"} 0
+`))
 	})
 
 	r.GET("/api/search", func(c *gin.Context) {
@@ -144,15 +165,15 @@ func main() {
 			arr, _ := time.Parse(time.RFC3339, arrStr)
 			duration := int(arr.Sub(dep).Minutes())
 			results = append(results, SearchResult{
-				ID:            fm["id"].(string),
-				FlightNumber:  fm["flightNumber"].(string),
-				Origin:        fm["origin"].(string),
-				Destination:   fm["destination"].(string),
-				DepartureTime: depStr,
-				ArrivalTime:   arrStr,
-				Duration:      duration,
+				ID:             fm["id"].(string),
+				FlightNumber:   fm["flightNumber"].(string),
+				Origin:         fm["origin"].(string),
+				Destination:    fm["destination"].(string),
+				DepartureTime:  depStr,
+				ArrivalTime:    arrStr,
+				Duration:       duration,
 				AvailableSeats: int(fm["availableSeats"].(float64)),
-				Status:        fm["status"].(string),
+				Status:         fm["status"].(string),
 			})
 		}
 		logJSON("INFO", "search-service", "Search completed", traceID, "", map[string]interface{}{"count": len(results)})
