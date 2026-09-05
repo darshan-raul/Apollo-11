@@ -5,7 +5,7 @@ description: "Canonical resume point for the learner-roadmap migration and evide
 
 # Apollo11 current handoff
 
-Updated: 2026-09-04
+Updated: 2026-09-05
 
 This file is the concise operational handoff for the next session. Use
 `ROADMAP.md` for the approved curriculum architecture, `AGENTS.md` for project
@@ -19,10 +19,12 @@ here because several described a curriculum structure that has since changed.
 - The roadmap remap and retirement of the legacy Stage 8 tree were committed
   and pushed as `244b037` (`docs: remap learning roadmap and retire stage 8`).
 - The Launchpad migration pass described below is complete, verified, and
-  committed together with this handoff.
+  committed as `1ddf638` (`launchpad: harden baseline and add learner verification`).
+- The Ignition migration pass is complete and verified in the current
+  worktree. It has not been committed because no commit was requested.
 - No temporary Launchpad containers, volumes, or networks remain.
-- The next curriculum migration checkpoint is **Ignition**, followed by
-  **Stage 1**. Do not jump directly to rebuilding Stage 8.
+- The next curriculum migration checkpoint is **Stage 1**. Do not jump
+  directly to rebuilding Stage 8.
 - Stages 1–7 remain the last existing runnable Kubernetes path while the
   curriculum is migrated one phase at a time.
 - Stage 8 has intentionally been deleted. Its replacement must be rebuilt from
@@ -173,6 +175,24 @@ Additional manual evidence:
 - The final isolated project `apollo11-launchpad-final` was removed with its
   volumes and network; the residue query returned nothing.
 
+## Ignition migration — complete
+
+- Replaced the inert sleeping Pod with a pinned BusyBox HTTP workload that
+  returns `Apollo11 Ignition ready`.
+- Preserved the imperative-to-declarative sequence and made the committed
+  manifest the recovery source of truth.
+- Added the reusable troubleshooting ladder: status, events, `describe`, logs,
+  then endpoint behavior.
+- Added one container-process failure that the kubelet recovers inside the
+  same Pod UID and one bare-Pod deletion that stays absent until human recovery.
+- Added `stages/ignition/scripts/verify.sh`, guarded to Ignition-owned kind
+  contexts, which leaves a healthy Pod for learner inspection.
+- Passed 14/14 checks on both the pre-existing `apollo11` cluster and an
+  isolated fresh three-node `apollo11-ignition-verify` cluster.
+- Deleted the isolated cluster and its context, removed the test Pod from the
+  pre-existing cluster, and confirmed only the pre-existing `apollo11` cluster
+  remains.
+
 ## Important carry-forward constraints
 
 - Each stage owns a self-contained `code/` snapshot. Do not mechanically copy
@@ -203,35 +223,23 @@ git status --short
 git log -2 --oneline
 ```
 
-The worktree should be clean and the latest commit should contain the Launchpad
-closure and this handoff.
+Expect the uncommitted Ignition migration described above unless it has since
+been explicitly committed. Do not discard it.
 
-### 2. Audit Ignition against the approved roadmap
+### 2. Audit Stage 1 against the approved roadmap
 
 Read, in order:
 
-1. `ROADMAP.md` — Ignition target and migration matrix entry.
+1. `ROADMAP.md` — Stage 1 target and migration matrix entry.
 2. `AGENTS.md` — learner-first lab contract and current project facts.
-3. `stages/ignition/README.md` and every referenced manifest/script.
+3. `stages/stage1/README.md` and every referenced manifest/script.
 
-Produce a concrete gap list before editing. The required outcome is a reusable
-troubleshooting evidence ladder plus a safe Pod failure/reconciliation exercise
-with behavioral recovery proof. Preserve the corrected imperative-to-
-declarative Pod sequence already present.
+Produce a concrete gap list before editing. Audit the destination code snapshot
+instead of mechanically copying Launchpad over it.
 
-### 3. Implement and verify Ignition
+### 3. Implement and verify Stage 1
 
-- Keep the increment minimal and learner-visible.
-- Validate shell/YAML statically first.
-- Use a fresh kind lifecycle for runtime claims.
-- Capture exact Build/Inspect/Break/Recover evidence.
-- Tear down or explicitly document retained resources and audit residue.
-- Update README/AGENTS completion claims only after the lifecycle passes.
-
-### 4. Continue to Stage 1
-
-After Ignition is trusted, audit Stage 1 against the roadmap. The main gaps to
-close are:
+The main gaps to close are:
 
 - observable Deployments, ReplicaSets, labels/selectors, and Services;
 - ConfigMaps, Secrets, namespace, and meaningful workload ServiceAccounts;
@@ -239,7 +247,11 @@ close are:
 - rolling update, failed rollout diagnosis, and rollback; and
 - a clean apply → inspect → break → recover → teardown lifecycle.
 
-### 5. Continue phase-by-phase
+Validate shell/YAML statically first, then use a fresh kind lifecycle for
+runtime claims. Update completion claims only after behavioral recovery and
+residue cleanup pass.
+
+### 4. Continue phase-by-phase
 
 Proceed through the migration matrix in `ROADMAP.md`. Rebuild one boundary at a
 time, preserve the last runnable path, and never promote an external/cloud

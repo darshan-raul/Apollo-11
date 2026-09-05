@@ -237,6 +237,29 @@ approved exception and receives no trust inheritance.
 
 ---
 
+### Ignition
+
+**Location:** `stages/ignition/`
+
+**Status:** Complete. A fresh three-node kind lifecycle passed 14/14 checks on
+2026-09-05; the isolated verification cluster and its context were removed.
+
+Ignition uses one declarative BusyBox HTTP Pod to establish the recurring
+troubleshooting ladder: status, events, `describe`, logs, and endpoint behavior.
+The learner first creates the same workload imperatively, then moves to the
+committed manifest. Two reversible failures expose different reconciliation
+boundaries: killing the supervised HTTP process makes the kubelet restart the
+container while preserving the Pod UID; deleting the bare Pod leaves it absent
+until the learner reapplies the manifest, producing a new UID. Both recoveries
+end with an HTTP response rather than an object-existence check.
+
+`scripts/verify.sh` validates the manifest and cluster, exercises both failure
+paths, and passes 14 checks. It is context-guarded and leaves a healthy Pod for
+inspection; the README owns explicit workload and cluster cleanup plus residue
+audit commands.
+
+---
+
 ### Stage 1 (Liftoff)
 
 **Location:** `stages/stage1/`
@@ -874,7 +897,7 @@ advertise an uninstalled tool as part of the current learner environment.
 | Phase | Status | Details |
 |---|---|---|
 | Launchpad | ✅ Complete | 10 default workloads, non-root/read-only app containers, dependency-aware readiness, Prometheus text endpoints, reversible flagship workflow, 73/73 verify |
-| Ignition | ✅ Complete | kind cluster, first Pod, kubectl basics |
+| Ignition | ✅ Complete | Fresh three-node lifecycle; 14/14 checks cover the evidence ladder, container restart, bare-Pod deletion, and behavioral recovery |
 | Stage 1 | ✅ Complete | All 10 components as Deployments + Jobs, single namespace `apollo-airlines` |
 | Stage 2 | ✅ Complete | 5 manifest sets verified: NodePort 25/25, Traefik Ingress 26/26, Traefik+dashboard 27/27, Traefik+MetalLB 26/26, Envoy Gateway+MetalLB 29/29. Version sweep chose Envoy Gateway v1.5.0. NOTES.md documents the methodology + caveats. |
 | Stage 3 | ✅ Complete | 4 StatefulSets + PVCs + entrypoint-hook schema + seed jobs, 53/53 verify (Envoy+MetalLB access stack persists for stages 4–11) |

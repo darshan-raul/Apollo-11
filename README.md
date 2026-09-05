@@ -73,8 +73,10 @@ optional mission catalogs.
 * ☑️ Use core **kubectl** commands to inspect, apply, modify, and delete Kubernetes resources.
 * ☑️ Understand the difference between **imperative and declarative** resource management in Kubernetes.
 * ☑️ Get a high-level overview of Kubernetes cluster architecture, with concepts that will be revisited in depth later.
-* ☑️ **Launch your first Pod** and understand the structure and fields of a Pod manifest YAML.
-* ☑️ Learn why Pods are fragile and why higher-level workload abstractions are required.
+* ☑️ Use a reusable evidence ladder: status → events → describe → logs → endpoint behavior.
+* ☑️ Crash a container and prove kubelet recovery through restart count, stable Pod UID, and HTTP behavior.
+* ☑️ Delete a bare Pod, observe that it stays absent, then reapply its manifest and prove recovery with a new UID.
+* ☑️ Complete a fresh three-node lifecycle with **14/14** automated checks and no retained test-cluster residue.
 
 ---
 

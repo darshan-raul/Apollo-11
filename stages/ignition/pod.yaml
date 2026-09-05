@@ -6,7 +6,22 @@ metadata:
     app: shell
     stage: ignition
 spec:
+  restartPolicy: Always
   containers:
     - name: shell
-      image: alpine:latest
-      command: ["sh", "-c", "echo 'hello from k8s' && sleep 3600"]
+      image: busybox:1.36.1
+      imagePullPolicy: IfNotPresent
+      command:
+        - sh
+        - -c
+        - |
+          mkdir -p /www
+          printf 'Apollo11 Ignition ready\n' > /www/index.html
+          echo 'ignition HTTP server started'
+          httpd -f -p 8080 -h /www &
+          server_pid=$!
+          wait "${server_pid}"
+      ports:
+        - name: http
+          containerPort: 8080
+          protocol: TCP
