@@ -1,8 +1,9 @@
-#!/bin/bash
-set -e
+#!/usr/bin/env bash
+
+set -euo pipefail
 
 CLUSTER="${CLUSTER:-apollo11}"
-SERVICES="identity flight booking search notification frontend"
+SERVICES=(identity flight booking search notification frontend)
 REGISTRY="apollo11"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
@@ -26,7 +27,7 @@ done
 
 echo "=== Building Apollo Airlines service images ==="
 
-for svc in $SERVICES; do
+for svc in "${SERVICES[@]}"; do
     if [[ "$svc" == "frontend" ]]; then
         echo "Building $svc (NodePort URLs for kind)..."
         docker build -t "${REGISTRY}/${svc}:latest" \
@@ -49,7 +50,7 @@ if [[ "$SKIP_KIND" == "true" ]]; then
     echo "Skipped loading into kind (--skip-kind-load)."
     echo ""
     echo "Done. Images built:"
-    for svc in $SERVICES; do
+    for svc in "${SERVICES[@]}"; do
         echo "  ${REGISTRY}/${svc}:latest"
     done
     exit 0
@@ -70,14 +71,13 @@ fi
 echo ""
 echo "=== Loading images into kind cluster ==="
 
-for svc in $SERVICES; do
+for svc in "${SERVICES[@]}"; do
     echo "Loading ${REGISTRY}/${svc}:latest..."
-    kind load docker-image "${REGISTRY}/${svc}:latest" --name "${CLUSTER}" 2>/dev/null || \
-        echo "  (failed to load — cluster may not be running)"
+    kind load docker-image "${REGISTRY}/${svc}:latest" --name "${CLUSTER}"
 done
 
 echo ""
 echo "Done. Images loaded:"
-for svc in $SERVICES; do
+for svc in "${SERVICES[@]}"; do
     echo "  ${REGISTRY}/${svc}:latest"
 done

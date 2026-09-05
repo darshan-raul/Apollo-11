@@ -13,6 +13,7 @@ spec:
       labels:
         app: booking
     spec:
+      serviceAccountName: booking
       containers:
         - name: booking
           image: apollo11/booking:latest
@@ -23,18 +24,30 @@ spec:
             - name: DATABASE_URL
               value: "postgresql://postgres:postgres@booking-db:5432/booking?sslmode=disable"
             - name: FLIGHT_SERVICE_URL
-              value: "http://flight:8081"
+              valueFrom:
+                configMapKeyRef:
+                  name: apollo-airlines-config
+                  key: FLIGHT_SERVICE_URL
             - name: IDENTITY_SERVICE_URL
-              value: "http://identity:8080"
+              valueFrom:
+                configMapKeyRef:
+                  name: apollo-airlines-config
+                  key: IDENTITY_SERVICE_URL
             - name: NOTIFICATION_SERVICE_URL
-              value: "http://notification:8084"
+              valueFrom:
+                configMapKeyRef:
+                  name: apollo-airlines-config
+                  key: NOTIFICATION_SERVICE_URL
             - name: JWT_SECRET
               valueFrom:
                 secretKeyRef:
                   name: apollo-airlines-secrets
                   key: JWT_SECRET
             - name: PORT
-              value: "8082"
+              valueFrom:
+                configMapKeyRef:
+                  name: apollo-airlines-config
+                  key: PORT_BOOKING
           livenessProbe:
             httpGet:
               path: /healthz

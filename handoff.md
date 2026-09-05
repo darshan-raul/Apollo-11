@@ -20,10 +20,12 @@ here because several described a curriculum structure that has since changed.
   and pushed as `244b037` (`docs: remap learning roadmap and retire stage 8`).
 - The Launchpad migration pass described below is complete, verified, and
   committed as `1ddf638` (`launchpad: harden baseline and add learner verification`).
-- The Ignition migration pass is complete and verified in the current
-  worktree. It has not been committed because no commit was requested.
+- The Ignition migration pass was committed and pushed as `53c0646`
+  (`ignition: add evidence-driven recovery lab`).
+- The Stage 1 migration pass described below is complete, verified, and
+  included with this handoff.
 - No temporary Launchpad containers, volumes, or networks remain.
-- The next curriculum migration checkpoint is **Stage 1**. Do not jump
+- The next curriculum migration checkpoint is **Stage 2**. Do not jump
   directly to rebuilding Stage 8.
 - Stages 1–7 remain the last existing runnable Kubernetes path while the
   curriculum is migrated one phase at a time.
@@ -193,6 +195,29 @@ Additional manual evidence:
   pre-existing cluster, and confirmed only the pre-existing `apollo11` cluster
   remains.
 
+## Stage 1 migration — complete
+
+- Ported Launchpad's verified auth propagation, dependency-aware readiness,
+  Prometheus text endpoints, non-root images, and frontend build contract into
+  the Stage 1 snapshot without replacing its UI source.
+- Added 13 dedicated ServiceAccounts. Token automount is disabled, and live
+  impersonation checks prove every identity is denied Pod reads.
+- Added ordered `apply.sh`, context-guarded `verify.sh`, and ownership-scoped
+  `teardown.sh` alongside the hardened image builder.
+- Made initialization retries bounded, enabled `psql ON_ERROR_STOP`, retained
+  failed Job Pods for diagnosis, and corrected Flight seed uniqueness and SQL.
+- Proved two users, 186 flights across 31 days, and the booking schema.
+- Exercised a reversible flagship booking with request-ID evidence across
+  Booking, Flight, and Notification.
+- Deleted a booking Pod and proved ReplicaSet replacement plus endpoint
+  recovery.
+- Created a successful Search rollout, introduced an invalid image, observed
+  the pull failure while old replicas served traffic, and rolled back to the
+  working image.
+- Final verification passed `167/167` checks.
+- Deleted the `apollo-airlines` namespace, found no workload residue, and
+  retained the pre-existing `apollo11` kind cluster for Stage 2.
+
 ## Important carry-forward constraints
 
 - Each stage owns a self-contained `code/` snapshot. Do not mechanically copy
@@ -223,33 +248,38 @@ git status --short
 git log -2 --oneline
 ```
 
-Expect the uncommitted Ignition migration described above unless it has since
-been explicitly committed. Do not discard it.
+The latest commit should contain the Stage 1 closure and this handoff. Preserve
+any later unrelated worktree changes during the Stage 2 audit.
 
-### 2. Audit Stage 1 against the approved roadmap
+### 2. Audit Stage 2 against the approved roadmap
 
 Read, in order:
 
-1. `ROADMAP.md` — Stage 1 target and migration matrix entry.
+1. `ROADMAP.md` — Stage 2 target and migration matrix entries.
 2. `AGENTS.md` — learner-first lab contract and current project facts.
-3. `stages/stage1/README.md` and every referenced manifest/script.
+3. `stages/stage2/README.md`, `NOTES.md`, and every ordered set's referenced
+   manifests and scripts.
 
-Produce a concrete gap list before editing. Audit the destination code snapshot
-instead of mechanically copying Launchpad over it.
+Produce a concrete gap list before editing. Preserve the last runnable set
+while moving concepts to their approved teaching boundary.
 
-### 3. Implement and verify Stage 1
+### 3. Implement and verify Stage 2
 
 The main gaps to close are:
 
-- observable Deployments, ReplicaSets, labels/selectors, and Services;
-- ConfigMaps, Secrets, namespace, and meaningful workload ServiceAccounts;
-- one-shot database initialization Jobs;
-- rolling update, failed rollout diagnosis, and rollback; and
-- a clean apply → inspect → break → recover → teardown lifecycle.
+- begin with ClusterIP Services, cross-namespace DNS, and endpoint inspection;
+- keep NodePort as the first direct external access mechanism;
+- make Traefik transitional and add controlled local TLS;
+- preserve MetalLB before migrating to the canonical Envoy Gateway API;
+- introduce consumer-level CRD/controller inspection with Gateway API;
+- remove headless Services from Stage 2 and introduce them with StatefulSets;
+- remove required/reference NetworkPolicy teaching until Calico enforcement in
+  Stage 8; and
+- move the Traefik dashboard out of the required progression.
 
 Validate shell/YAML statically first, then use a fresh kind lifecycle for
-runtime claims. Update completion claims only after behavioral recovery and
-residue cleanup pass.
+each routing transition. Preserve a clean teardown after every retained
+substage and update completion claims only from behavioral evidence.
 
 ### 4. Continue phase-by-phase
 

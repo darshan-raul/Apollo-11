@@ -13,6 +13,7 @@ spec:
       labels:
         app: search
     spec:
+      serviceAccountName: search
       containers:
         - name: search
           image: apollo11/search:latest
@@ -21,9 +22,15 @@ spec:
             - containerPort: 8083
           env:
             - name: FLIGHT_SERVICE_URL
-              value: "http://flight:8081"
+              valueFrom:
+                configMapKeyRef:
+                  name: apollo-airlines-config
+                  key: FLIGHT_SERVICE_URL
             - name: PORT
-              value: "8083"
+              valueFrom:
+                configMapKeyRef:
+                  name: apollo-airlines-config
+                  key: PORT_SEARCH
           livenessProbe:
             httpGet:
               path: /healthz

@@ -13,6 +13,7 @@ spec:
       labels:
         app: identity
     spec:
+      serviceAccountName: identity
       containers:
         - name: identity
           image: apollo11/identity:latest
@@ -28,7 +29,10 @@ spec:
                   name: apollo-airlines-secrets
                   key: JWT_SECRET
             - name: PORT
-              value: "8080"
+              valueFrom:
+                configMapKeyRef:
+                  name: apollo-airlines-config
+                  key: PORT_IDENTITY
           livenessProbe:
             httpGet:
               path: /healthz

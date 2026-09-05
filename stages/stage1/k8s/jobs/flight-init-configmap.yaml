@@ -17,7 +17,7 @@ data:
 
     CREATE TABLE IF NOT EXISTS flights (
         id               UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-        flight_number    VARCHAR(20) UNIQUE NOT NULL,
+        flight_number    VARCHAR(20) NOT NULL,
         origin           VARCHAR(5) REFERENCES airports(code),
         destination      VARCHAR(5) REFERENCES airports(code),
         departure_time   TIMESTAMP NOT NULL,
@@ -26,7 +26,8 @@ data:
         available_seats  INT NOT NULL,
         status           VARCHAR(20) DEFAULT 'SCHEDULED',
         created_at       TIMESTAMP DEFAULT NOW(),
-        updated_at       TIMESTAMP DEFAULT NOW()
+        updated_at       TIMESTAMP DEFAULT NOW(),
+        UNIQUE (flight_number, departure_time)
     );
 
     INSERT INTO airports (id, code, name, city, country) VALUES
@@ -43,18 +44,18 @@ data:
         f.flight_number,
         f.origin,
         f.destination,
-        (CURRENT_DATE + n * INTERVAL '1 day' + TIME f.dep_time)::timestamp,
-        (CURRENT_DATE + n * INTERVAL '1 day' + TIME f.arr_time)::timestamp,
+        (CURRENT_DATE + n * INTERVAL '1 day' + f.dep_time)::timestamp,
+        (CURRENT_DATE + n * INTERVAL '1 day' + f.arr_time)::timestamp,
         f.total_capacity,
         f.total_capacity,
         'SCHEDULED'
     FROM (VALUES
-        ('AA101', 'BOM', 'SIN', '08:00:00', '14:30:00', 180),
-        ('AA102', 'SIN', 'BOM', '20:00:00', '23:30:00', 180),
-        ('AA201', 'DEL', 'DXB', '09:30:00', '13:00:00', 220),
-        ('AA202', 'DXB', 'DEL', '22:00:00', '02:30:00', 220),
-        ('AA301', 'BOM', 'LHR', '01:00:00', '10:00:00', 300),
-        ('AA401', 'DEL', 'JFK', '02:00:00', '14:00:00', 280)
+        ('AA101', 'BOM', 'SIN', '08:00:00'::time, '14:30:00'::time, 180),
+        ('AA102', 'SIN', 'BOM', '20:00:00'::time, '23:30:00'::time, 180),
+        ('AA201', 'DEL', 'DXB', '09:30:00'::time, '13:00:00'::time, 220),
+        ('AA202', 'DXB', 'DEL', '22:00:00'::time, '02:30:00'::time, 220),
+        ('AA301', 'BOM', 'LHR', '01:00:00'::time, '10:00:00'::time, 300),
+        ('AA401', 'DEL', 'JFK', '02:00:00'::time, '14:00:00'::time, 280)
     ) AS f(flight_number, origin, destination, dep_time, arr_time, total_capacity)
     CROSS JOIN generate_series(0, 30) AS n
-    ON CONFLICT (flight_number) DO NOTHING;
+    ON CONFLICT (flight_number, departure_time) DO NOTHING;

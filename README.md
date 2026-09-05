@@ -87,7 +87,10 @@ optional mission catalogs.
 * ✅ Give Pods stable endpoints using **Services**.
 * ✅ Run one-time database initialization using **Jobs** and mounted ConfigMaps.
 * ✅ Externalize configuration using **ConfigMaps** and **Secrets**.
+* ✅ Give all 13 workloads dedicated, tokenless **ServiceAccounts** and prove they cannot read Pods.
+* ✅ Trigger an invalid-image rollout, diagnose `ImagePullBackOff`, preserve service availability, and roll back.
 * ✅ Compare ephemeral `emptyDir` storage with the persistence added in Stage 3.
+* ✅ Pass **167/167** behavioral checks and remove all Stage 1 namespace residue.
 
 ---
 

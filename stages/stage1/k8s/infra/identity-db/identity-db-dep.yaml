@@ -13,6 +13,7 @@ spec:
       labels:
         app: identity-db
     spec:
+      serviceAccountName: identity-db
       containers:
         - name: postgres
           image: postgres:15-alpine

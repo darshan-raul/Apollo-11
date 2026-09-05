@@ -13,6 +13,7 @@ spec:
       labels:
         app: frontend
     spec:
+      serviceAccountName: frontend
       containers:
         - name: frontend
           image: apollo11/frontend:latest

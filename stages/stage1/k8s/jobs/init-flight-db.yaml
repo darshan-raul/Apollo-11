@@ -10,6 +10,7 @@ spec:
       labels:
         app: init-flight-db
     spec:
+      serviceAccountName: init-flight-db
       containers:
         - name: init
           image: postgres:15-alpine
@@ -17,8 +18,18 @@ spec:
             - sh
             - -c
             - |
-              until pg_isready -h flight-db -U postgres; do echo "Waiting for flight-db..."; sleep 2; done
-              psql -h flight-db -U postgres -d flight -f /init/init.sql || true
+              set -eu
+              attempt=0
+              until pg_isready -h flight-db -U postgres; do
+                attempt=$((attempt + 1))
+                if [ "${attempt}" -ge 30 ]; then
+                  echo "flight-db did not become ready" >&2
+                  exit 1
+                fi
+                echo "Waiting for flight-db... (${attempt}/30)"
+                sleep 2
+              done
+              psql -v ON_ERROR_STOP=1 -h flight-db -U postgres -d flight -f /init/init.sql
               echo "flight DB init done"
           env:
             - name: PGPASSWORD
@@ -33,4 +44,4 @@ spec:
         - name: init-script
           configMap:
             name: flight-init-script
-      restartPolicy: OnFailure
+      restartPolicy: Never

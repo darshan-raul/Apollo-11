@@ -13,6 +13,7 @@ spec:
       labels:
         app: notification
     spec:
+      serviceAccountName: notification
       containers:
         - name: notification
           image: apollo11/notification:latest
@@ -21,9 +22,15 @@ spec:
             - containerPort: 8084
           env:
             - name: REDIS_URL
-              value: "redis://redis:6379"
+              valueFrom:
+                configMapKeyRef:
+                  name: apollo-airlines-config
+                  key: REDIS_URL
             - name: PORT
-              value: "8084"
+              valueFrom:
+                configMapKeyRef:
+                  name: apollo-airlines-config
+                  key: PORT_NOTIFICATION
           livenessProbe:
             httpGet:
               path: /healthz

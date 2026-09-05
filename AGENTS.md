@@ -264,17 +264,29 @@ audit commands.
 
 **Location:** `stages/stage1/`
 
-**k8s manifests (27 files):**
+**Status:** Complete. The clean apply → inspect → break → recover → teardown
+lifecycle passed 167/167 checks on 2026-09-05 with zero namespace residue.
+
+**Kubernetes tree (35 files, 42 rendered resources):**
 - `namespace.yaml` — `apollo-airlines` namespace
 - `configmap.yaml` — service ports, internal URLs, database names
 - `secrets.yaml` — POSTGRES_PASSWORD, JWT_SECRET
+- `serviceaccounts.yaml` — 13 dedicated identities with token automount disabled
 - 4 infra Deployments + Services (identity-db, flight-db, booking-db, redis)
-- 3 Init Jobs (identity-db, flight-db, booking-db) + Init ConfigMaps
+- 3 strict, bounded Init Jobs + Init ConfigMaps; SQL failures remain observable
 - 6 app Deployments + Services (identity, flight, booking, search, notification, frontend)
 - `kustomization.yaml` — top-level resource list
+- `scripts/apply.sh` — builds, loads, applies in dependency order, and waits
+- `scripts/verify.sh` — 167 resource, identity, endpoint, workflow, replacement,
+  rollout-failure, and rollback checks
+- `scripts/teardown.sh` — deletes the owned namespace and proves absence
 - `scripts/build-images.sh` — builds + loads images into kind
 
-**Stage 1 code changes vs launchpad:** None (k8s deployment layer only)
+Stage 1 carries Launchpad's verified auth propagation, dependency readiness,
+Prometheus-text endpoints, non-root image defaults, and frontend build contract.
+The Kubernetes-specific change remains the deployment layer. Flight seed data
+uses `(flight_number, departure_time)` uniqueness and creates 186 rows across
+31 days; `psql` runs with `ON_ERROR_STOP` rather than masking errors.
 
 ---
 
@@ -898,7 +910,7 @@ advertise an uninstalled tool as part of the current learner environment.
 |---|---|---|
 | Launchpad | ✅ Complete | 10 default workloads, non-root/read-only app containers, dependency-aware readiness, Prometheus text endpoints, reversible flagship workflow, 73/73 verify |
 | Ignition | ✅ Complete | Fresh three-node lifecycle; 14/14 checks cover the evidence ladder, container restart, bare-Pod deletion, and behavioral recovery |
-| Stage 1 | ✅ Complete | All 10 components as Deployments + Jobs, single namespace `apollo-airlines` |
+| Stage 1 | ✅ Complete | 42 resources; 13 tokenless workload identities; 167/167 checks cover Jobs, flagship workflow, Pod replacement, failed rollout, rollback, and clean teardown |
 | Stage 2 | ✅ Complete | 5 manifest sets verified: NodePort 25/25, Traefik Ingress 26/26, Traefik+dashboard 27/27, Traefik+MetalLB 26/26, Envoy Gateway+MetalLB 29/29. Version sweep chose Envoy Gateway v1.5.0. NOTES.md documents the methodology + caveats. |
 | Stage 3 | ✅ Complete | 4 StatefulSets + PVCs + entrypoint-hook schema + seed jobs, 53/53 verify (Envoy+MetalLB access stack persists for stages 4–11) |
 | Stage 4 | ✅ Complete | Probes (startup/live/ready) on 6 apps, Guaranteed QoS on all 10 pods, PDBs for booking + frontend, graceful SIGTERM on all backends, frontend build-time URLs, 130/130 verify |

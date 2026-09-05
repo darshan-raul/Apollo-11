@@ -13,6 +13,7 @@ spec:
       labels:
         app: booking-db
     spec:
+      serviceAccountName: booking-db
       containers:
         - name: postgres
           image: postgres:15-alpine

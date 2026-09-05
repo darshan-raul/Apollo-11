@@ -11,12 +11,16 @@ RUN CGO_ENABLED=0 GOOS=linux go build -o /search-service
 
 FROM alpine:3.19
 
-RUN apk --no-cache add ca-certificates
+RUN apk --no-cache add ca-certificates \
+    && addgroup -S apollo \
+    && adduser -S -G apollo apollo
 
 WORKDIR /app
 
-COPY --from=builder /search-service /app/search-service
+COPY --from=builder --chown=apollo:apollo /search-service /app/search-service
 
 EXPOSE 8083
+
+USER apollo
 
 CMD ["/app/search-service"]

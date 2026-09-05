@@ -7,6 +7,7 @@ resources:
   - config/namespace.yaml
   - config/configmap.yaml
   - config/secrets.yaml
+  - config/serviceaccounts.yaml
   - infra/identity-db/identity-db-dep.yaml
   - infra/identity-db/identity-db-svc.yaml
   - infra/flight-db/flight-db-dep.yaml
