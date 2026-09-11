@@ -1,158 +1,117 @@
-#!/bin/bash
-# Apply Stage 4: probes (startup/live/ready), resource limits (Guaranteed
-# QoS), PodDisruptionBudgets, and graceful SIGTERM shutdown, on top of
-# Stage 3's StatefulSets + Stage 2's set-5 access stack (Envoy Gateway
-# + MetalLB).
-# Run from stages/stage4: ./scripts/apply.sh
-set -e
+#!/usr/bin/env bash
+
+set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 STAGE_DIR="$(dirname "$SCRIPT_DIR")"
-K8S_DIR="$STAGE_DIR/k8s"
+K8S_DIR="${STAGE_DIR}/k8s"
 CLUSTER="${CLUSTER:-apollo11}"
+ALLOWED_CONTEXTS=("kind-${CLUSTER}" "kind-${CLUSTER}-dev")
 
-GREEN='\033[0;32m'; CYAN='\033[0;36m'; RED='\033[0;31m'; NC='\033[0m'
-step()  { echo -e "${CYAN}▶ $1${NC}"; }
-ok()    { echo -e "${GREEN}✓ $1${NC}"; }
-fail()  { echo -e "${RED}✗ $1${NC}"; exit 1; }
-
-step "0/10 Checking cluster"
-if ! kubectl cluster-info >/dev/null 2>&1; then
-  fail "kubectl cannot reach a cluster. Did you 'kind create cluster'?"
-fi
-ok "cluster reachable"
-
-step "1/10 Building + loading app images"
-# Keep all image construction in one script so the frontend is built exactly
-# once with the Stage 2 set-5 hostnames. The previous inline loop included
-# `frontend` and silently overwrote the correctly configured image with the
-# Dockerfile's localhost defaults.
-CLUSTER="$CLUSTER" bash "$SCRIPT_DIR/build-images.sh"
-ok "all 6 application images built and loaded"
-
-step "2/10 Namespaces + config + secrets"
-kubectl apply -f "$K8S_DIR/config/"
-
-step "3/10 ServiceAccounts"
-kubectl apply -f "$K8S_DIR/serviceaccounts/"
-
-# NetworkPolicies are reference only — kindnet does NOT enforce them.
-
-step "4/10 Apps (6 Deployments + 4 StatefulSets + 4 headless SVCs + 4 ClusterIP SVCs) + PodDisruptionBudgets"
-kubectl apply -f "$K8S_DIR/apps/" --recursive
-# Stage 4: PodDisruptionBudgets for booking and frontend. Applied here
-# (after the Deployments exist) so the PDB selector can match them.
-kubectl apply -f "$K8S_DIR/pdb/"
-
-step "5/10 Waiting for StatefulSet pods to be Ready (schema runs in entrypoint hook on first start)"
-# The init container in each DB pod waits for `pg_isready` and then runs init.sql.
-# We block until the StatefulSet reports readyReplicas==replicas.
-for sts in identity-db flight-db booking-db redis; do
-  echo "  Waiting for statefulset/$sts..."
-  if ! kubectl rollout status statefulset/"$sts" -n apollo-airlines-apps --timeout=180s 2>/dev/null; then
-    fail "statefulset/$sts did not become Ready within 180s"
-  fi
-  ok "statefulset/$sts ready"
+SKIP_BUILD=false
+while [[ $# -gt 0 ]]; do
+    case $1 in
+        --skip-build) SKIP_BUILD=true; shift ;;
+        --cluster) CLUSTER="$2"; ALLOWED_CONTEXTS=("kind-${CLUSTER}" "kind-${CLUSTER}-dev"); shift 2 ;;
+        *) echo "Unknown option: $1"; exit 1 ;;
+    esac
 done
 
-# Pods must be Ready (not just Running) before we run seed jobs.
-for db in identity-db-0 flight-db-0 booking-db-0 redis-0; do
-  echo "  Waiting for pod/$db to be Ready..."
-  if ! kubectl wait --for=condition=Ready pod/"$db" -n apollo-airlines-apps --timeout=60s >/dev/null 2>&1; then
-    fail "pod/$db not Ready within 60s"
-  fi
-  ok "pod/$db Ready"
-done
+echo "=== Applying Stage 4: Flight Control (Probes, QoS, Scheduling, Disruption) ==="
 
-step "6/10 Seed jobs (3 data-only, idempotent ON CONFLICT DO NOTHING)"
-kubectl apply -f "$K8S_DIR/jobs/"
-
-step "7/10 Waiting for seed jobs to succeed"
-for j in seed-identity-db seed-flight-db seed-booking-db; do
-  echo "  Waiting for job/$j..."
-  if ! kubectl wait --for=condition=Complete job/"$j" -n apollo-airlines-apps --timeout=120s >/dev/null 2>&1; then
-    echo -e "${RED}Job $j did not complete. Logs:${NC}"
-    kubectl logs -n apollo-airlines-apps -l app="$j" --tail=20
-    fail "job/$j failed"
-  fi
-  ok "job/$j succeeded"
-done
-
-step "8/10 MetalLB install + IP pool + L2 advertisement"
-kubectl apply --server-side --force-conflicts -f "$K8S_DIR/metallb/00-metallb-native.yaml" 2>&1 | tail -3
-echo "  Waiting for MetalLB controller..."
-for i in $(seq 1 30); do
-  if kubectl get pods -n metallb-system -l component=controller --no-headers 2>/dev/null | grep -q "1/1"; then
-    ok "MetalLB controller ready"
-    break
-  fi
-  sleep 5
-done
-kubectl apply -f "$K8S_DIR/metallb/01-ip-pool.yaml"
-ok "MetalLB IPAddressPool + L2Advertisement applied"
-
-step "9/10 Envoy Gateway install + GatewayClass + Gateway + HTTPRoutes"
-kubectl apply --server-side -f "$K8S_DIR/gateway/00-envoy-gateway-install.yaml" 2>&1 | tail -3
-kubectl apply -f "$K8S_DIR/gateway/00a-gatewayclass.yaml"
-kubectl apply -f "$K8S_DIR/gateway/01-gateway.yaml"
-kubectl apply -f "$K8S_DIR/gateway/01a-referencegrant.yaml"
-kubectl apply -f "$K8S_DIR/gateway/02-httproute-identity.yaml"
-kubectl apply -f "$K8S_DIR/gateway/03-httproute-flight.yaml"
-kubectl apply -f "$K8S_DIR/gateway/04-httproute-booking.yaml"
-kubectl apply -f "$K8S_DIR/gateway/05-httproute-search.yaml"
-kubectl apply -f "$K8S_DIR/gateway/06-httproute-notification.yaml"
-kubectl apply -f "$K8S_DIR/gateway/07-httproute-frontend.yaml"
-
-echo "  Waiting for Gateway to be Programmed..."
-for i in $(seq 1 30); do
-  prog=$(kubectl get gateway apollo-gateway -n apollo-airlines-apps -o jsonpath='{.status.conditions[?(@.type=="Programmed")].status}' 2>/dev/null || echo "")
-  if [[ "$prog" == "True" ]]; then
-    ok "Gateway is Programmed"
-    break
-  fi
-  sleep 5
-done
-
-step "10/10 Waiting for MetalLB to assign LoadBalancer IP"
-ENVOY_IP=""
-for i in $(seq 1 24); do
-  SVC=$(kubectl get svc -n envoy-gateway-system -l gateway.envoyproxy.io/owning-gateway-name=apollo-gateway -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || echo "")
-  if [[ -n "$SVC" ]]; then
-    ENVOY_IP=$(kubectl get svc "$SVC" -n envoy-gateway-system -o jsonpath='{.status.loadBalancer.ingress[0].ip}' 2>/dev/null || echo "")
-    if [[ -n "$ENVOY_IP" ]]; then
-      ok "MetalLB assigned IP: $ENVOY_IP to $SVC"
-      break
+CURRENT_CTX="$(kubectl config current-context 2>/dev/null || true)"
+ctx_matched=false
+for allowed in "${ALLOWED_CONTEXTS[@]}"; do
+    if [[ "$CURRENT_CTX" == "$allowed" ]]; then
+        ctx_matched=true
+        break
     fi
-  fi
-  sleep 5
 done
 
-if [[ -n "$ENVOY_IP" ]]; then
-  cat <<EOF
-
-${GREEN}Add these lines to your /etc/hosts:${NC}
-  $ENVOY_IP  frontend.apollo.local identity.apollo.local flight.apollo.local \\
-              booking.apollo.local search.apollo.local
-
-Then test with:
-  curl -H 'Host: identity.apollo.local' http://$ENVOY_IP/healthz
-  open http://frontend.apollo.local/
-
-${CYAN}Alternative DNS (no /etc/hosts edit):${NC}
-  Use nip.io: http://frontend.$ENVOY_IP.nip.io/  (auto-resolves to the IP)
-
-${CYAN}Stage 4 new: verify PDBs and graceful SIGTERM behaviour${NC}
-  kubectl get pvc -n apollo-airlines-apps
-  kubectl get statefulset -n apollo-airlines-apps
-  kubectl exec -n apollo-airlines-apps identity-db-0 -- psql -U postgres -d identity -c 'SELECT count(*) FROM users;'
-EOF
-else
-  cat <<EOF
-
-${RED}MetalLB did not assign an IP. Check:${NC}
-  kubectl get svc -n envoy-gateway-system -l gateway.envoyproxy.io/owning-gateway-name=apollo-gateway
-  kubectl logs -n metallb-system deploy/controller
-EOF
+if [[ "$ctx_matched" != "true" ]]; then
+    echo "Refusing to run against context '$CURRENT_CTX'."
+    echo "This script only targets one of: ${ALLOWED_CONTEXTS[*]}"
+    exit 1
 fi
 
-ok "Stage 4 applied. Run ./scripts/verify.sh"
+if [[ "$SKIP_BUILD" != "true" ]]; then
+    echo ""
+    echo "[1/8] Building and loading service images..."
+    bash "${SCRIPT_DIR}/build-images.sh" --cluster "$CLUSTER"
+else
+    echo ""
+    echo "[1/8] Skipping image build (--skip-build)"
+fi
+
+echo ""
+echo "[2/8] Applying config, secrets, ServiceAccounts, and PriorityClasses..."
+kubectl apply -f "${K8S_DIR}/config/"
+
+echo ""
+echo "[3/8] Applying stateful and stateless application workloads & PDBs..."
+kubectl apply -f "${K8S_DIR}/apps/" --recursive
+kubectl apply -f "${K8S_DIR}/pdb/"
+
+echo ""
+echo "[4/8] Waiting for StatefulSets and pods to be Ready..."
+for sts in identity-db flight-db booking-db redis; do
+    kubectl rollout status "statefulset/${sts}" -n apollo-airlines-apps --timeout=120s
+done
+
+for pod in identity-db-0 flight-db-0 booking-db-0 redis-0; do
+    kubectl wait --for=condition=Ready "pod/${pod}" -n apollo-airlines-apps --timeout=60s
+done
+
+echo ""
+echo "[5/8] Waiting for application Deployments to roll out..."
+for dep in identity flight booking search notification; do
+    kubectl rollout status "deployment/${dep}" -n apollo-airlines-apps --timeout=120s
+done
+kubectl rollout status deployment/frontend -n apollo-airlines-ui --timeout=120s
+
+echo ""
+echo "[6/8] Applying idempotent database seed Jobs..."
+kubectl apply -f "${K8S_DIR}/jobs/"
+for job in seed-identity-db seed-flight-db seed-booking-db; do
+    kubectl wait --for=condition=Complete "job/${job}" -n apollo-airlines-apps --timeout=60s
+done
+
+echo ""
+echo "[7/8] Applying MetalLB LoadBalancer infrastructure..."
+kubectl apply --server-side --force-conflicts -f "${K8S_DIR}/metallb/00-metallb-native.yaml"
+kubectl wait --for=condition=Ready pod -l component=controller -n metallb-system --timeout=120s
+kubectl apply -f "${K8S_DIR}/metallb/01-ip-pool.yaml"
+
+echo ""
+echo "[8/8] Applying Envoy Gateway API controller, GatewayClass, EnvoyProxy, and HTTPRoutes..."
+kubectl apply --server-side -f "${K8S_DIR}/gateway/00-envoy-gateway-install.yaml"
+kubectl wait --for=condition=Ready pod -l control-plane=envoy-gateway -n envoy-gateway-system --timeout=120s
+kubectl apply -f "${K8S_DIR}/gateway/00a-gatewayclass.yaml"
+kubectl apply -f "${K8S_DIR}/gateway/00b-envoyproxy.yaml"
+kubectl apply -f "${K8S_DIR}/gateway/01-gateway.yaml"
+kubectl apply -f "${K8S_DIR}/gateway/01a-referencegrant.yaml"
+kubectl apply -f "${K8S_DIR}/gateway/02-httproute-identity.yaml"
+kubectl apply -f "${K8S_DIR}/gateway/03-httproute-flight.yaml"
+kubectl apply -f "${K8S_DIR}/gateway/04-httproute-booking.yaml"
+kubectl apply -f "${K8S_DIR}/gateway/05-httproute-search.yaml"
+kubectl apply -f "${K8S_DIR}/gateway/06-httproute-notification.yaml"
+kubectl apply -f "${K8S_DIR}/gateway/07-httproute-frontend.yaml"
+
+echo "Waiting for Envoy Proxy and Gateway programming..."
+kubectl wait --for=condition=Programmed gateway/apollo-gateway -n apollo-airlines-apps --timeout=60s
+
+GATEWAY_IP=""
+for _ in $(seq 1 30); do
+    GATEWAY_IP="$(kubectl get service -n envoy-gateway-system -l gateway.envoyproxy.io/owning-gateway-name=apollo-gateway -o jsonpath='{.items[0].status.loadBalancer.ingress[0].ip}' 2>/dev/null || true)"
+    if [[ -n "$GATEWAY_IP" ]]; then
+        break
+    fi
+    sleep 2
+done
+
+echo ""
+if [[ -n "$GATEWAY_IP" ]]; then
+    echo "Stage 4 applied successfully. Envoy Gateway IP: ${GATEWAY_IP}"
+else
+    echo "Stage 4 applied, but LoadBalancer IP is still pending."
+fi

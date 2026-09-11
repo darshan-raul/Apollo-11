@@ -1,0 +1,15 @@
+apiVersion: scheduling.k8s.io/v1
+kind: PriorityClass
+metadata:
+  name: apollo-airlines-app-critical
+value: 1000000
+globalDefault: false
+description: "Apollo Airlines app-critical pods (booking, search)."
+---
+apiVersion: scheduling.k8s.io/v1
+kind: PriorityClass
+metadata:
+  name: apollo-airlines-app-low
+value: -100000
+globalDefault: false
+description: "Apollo Airlines app-low pods (notification)."

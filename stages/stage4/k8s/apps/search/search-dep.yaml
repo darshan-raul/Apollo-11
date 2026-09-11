@@ -14,12 +14,24 @@ spec:
         app: search
         tier: public
     spec:
+      priorityClassName: apollo-airlines-app-critical
       serviceAccountName: search
       terminationGracePeriodSeconds: 30
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: kubernetes.io/hostname
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector:
+            matchLabels:
+              app: search
       containers:
         - name: search
           image: apollo11/search:latest
           imagePullPolicy: IfNotPresent
+          lifecycle:
+            preStop:
+              exec:
+                command: ["/bin/sh", "-c", "sleep 5"]
           ports:
             - containerPort: 8083
           env:

@@ -5,6 +5,11 @@ metadata:
   namespace: apollo-airlines-apps
 spec:
   gatewayClassName: eg
+  infrastructure:
+    parametersRef:
+      group: gateway.envoyproxy.io
+      kind: EnvoyProxy
+      name: envoyproxy-lb-config
   listeners:
     - name: web
       port: 80
@@ -12,5 +17,3 @@ spec:
       allowedRoutes:
         namespaces:
           from: All
-  # Envoy Gateway v1.5.0: the auto-created Service defaults to
-  # type=LoadBalancer. MetalLB (in k8s/metallb/) assigns a real IP.

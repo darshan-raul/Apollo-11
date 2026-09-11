@@ -13,12 +13,24 @@ spec:
       labels:
         app: notification
     spec:
+      priorityClassName: apollo-airlines-app-low
       serviceAccountName: notification
       terminationGracePeriodSeconds: 30
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: kubernetes.io/hostname
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector:
+            matchLabels:
+              app: notification
       containers:
         - name: notification
           image: apollo11/notification:latest
           imagePullPolicy: IfNotPresent
+          lifecycle:
+            preStop:
+              exec:
+                command: ["/bin/sh", "-c", "sleep 5"]
           ports:
             - containerPort: 8084
           env:

@@ -48,7 +48,7 @@ stage where the effect can be demonstrated.
 | Stage 1 | Liftoff | All 10 components as Deployments, ConfigMaps, Secrets, Jobs (single-namespace baseline) |
 | Stage 2 | Guidance/N&C | Progressive 5-substage access ladder: ClusterIP & CoreDNS discovery, NodePort, Traefik Ingress + Local TLS, MetalLB LoadBalancer, and Envoy Gateway API baseline. Headless deferred to Stage 3; NetworkPolicies deferred to Stage 8. |
 | Stage 3 | Mission Data | StatefulSets + 1Gi PVCs for all 4 stateful workloads (3 PG + redis), schema bootstrap via Postgres `/docker-entrypoint-initdb.d/` ConfigMap mount, idempotent seed Jobs. **Envoy Gateway + MetalLB access stack from Stage 2 set 5 carries over and persists for later completed stages.** |
-| Stage 4 | Flight Control | Probes, resource limits, QoS, PodDisruptionBudget |
+| Stage 4 | Flight Control | Probes, Guaranteed QoS, lifecycle hooks (preStop), PriorityClass, topology spread, PodDisruptionBudget (148/148 verify) |
 | Stage 5 | Payload Integration | Helm chart (full access stack), Kustomize overlays (dev/staging/prod), GitHub Actions CI, **ArgoCD GitOps module** (AppProject + 3 Applications) |
 | Stage 6 | Mission Ops | Prometheus, Grafana, OpenTelemetry |
 | Stage 7 | Orbital Maneuvering | HPA, VPA, Redis cache, PriorityClass, reversible taint/toleration + affinity + topology-spread lab |
@@ -459,22 +459,20 @@ both build and kind load.
 
 **Location:** `stages/stage4/`
 
-**Status:** ✅ Complete. 130/130 verify checks pass on a fresh kind cluster (43 carried baseline + 87 Stage 4 checks).
+**Status:** ✅ Complete. 148/148 verify checks pass on a fresh kind cluster (probes, live execution, Guaranteed QoS, preStop hooks, PriorityClasses, topology spread, PDBs, SIGTERM drain, and Eviction API budget proof).
 
-**Architecture:** Same 10 workloads as Stage 3 + same Envoy Gateway + MetalLB access stack. This stage adds **probes** (so the kubelet can detect unhealthy pods), **resource governance** with Guaranteed QoS (so the scheduler can place pods predictably and OOM events are bounded), **PodDisruptionBudgets** (so voluntary disruptions can't take down the UI or the flagship booking service), and **graceful SIGTERM shutdown** (so in-flight requests drain cleanly instead of dropping). The Stage 2 set-5 access stack (Envoy + MetalLB) is unchanged.
+**Architecture:** Same 10 workloads as Stage 3 + same Envoy Gateway + MetalLB access stack. This stage adds **probes** (so the kubelet can detect unhealthy pods), **resource governance** with Guaranteed QoS (so the scheduler can place pods predictably and OOM events are bounded), **lifecycle preStop hooks and graceful SIGTERM shutdown** (so in-flight requests drain cleanly instead of dropping), **PriorityClasses & topology spread constraints** (so mission-critical booking/search pods have scheduling priority and replicas are balanced across nodes), and **PodDisruptionBudgets** (so voluntary disruptions cannot take down the UI or booking service). The Stage 2 set-5 access stack (Envoy + MetalLB) is unchanged.
 
 | Group | Files | What |
 |---|---|---|
-| `k8s/config/` | 3 | Verbatim from stage 3 |
-| `k8s/serviceaccounts/` | 1 | 13 SAs (verbatim from stage 3) |
-| `k8s/networkpolicies/` | 16 | Reference only (verbatim from stage 3) |
-| `k8s/apps/{identity,flight,booking,search,notification,frontend}/` | 12 | Add `startupProbe` + `livenessProbe` + `readinessProbe` (all 3 HTTP, distinct paths), `resources.requests == resources.limits` (Guaranteed QoS), `terminationGracePeriodSeconds: 30` |
+| `k8s/config/` | 5 | Namespaces, ConfigMap, Secret, 13 ServiceAccounts (automount=false), PriorityClasses (`apollo-airlines-app-critical`, `apollo-airlines-app-low`) |
+| `k8s/apps/{identity,flight,booking,search,notification,frontend}/` | 12 | Add `startupProbe` + `livenessProbe` + `readinessProbe` (all 3 HTTP, distinct paths), `lifecycle.preStop` hook (`sleep 5`), `topologySpreadConstraints` (`maxSkew: 1`), `priorityClassName` (critical for booking/search, low for notification), `resources.requests == resources.limits` (Guaranteed QoS), `terminationGracePeriodSeconds: 30` |
 | `k8s/apps/{identity-db,flight-db,booking-db,redis}/` | 7 | Add `resources.requests == resources.limits` + `terminationGracePeriodSeconds: 60`. **No new probes** — liveness + readiness already in stage 3. **No `startupProbe`** — Postgres' `initdb` / Redis init is the implicit start. |
-| `k8s/pdb/` (new) | 2 | `booking-pdb.yaml` (apps ns), `frontend-pdb.yaml` (ui ns) — both `minAvailable: 1` |
-| `k8s/jobs/` | 6 | Verbatim from stage 3 |
-| `k8s/gateway/` | 10 | Verbatim from stage 3 |
-| `k8s/metallb/` | 2 | Verbatim from stage 3 |
-| `scripts/` | 4 | `apply.sh` (10 steps, applies `k8s/pdb/` after apps), `teardown.sh` (verbatim from stage 3), `verify.sh` (130 checks), `build-images.sh` |
+| `k8s/pdb/` | 2 | `booking-pdb.yaml` (apps ns), `frontend-pdb.yaml` (ui ns) — both `minAvailable: 1` |
+| `k8s/jobs/` | 6 | Verbatim from stage 3 (idempotent seed Jobs + ConfigMaps) |
+| `k8s/gateway/` | 11 | Envoy Gateway v1.5.0 install + GatewayClass + EnvoyProxy + Gateway + 6 HTTPRoutes + ReferenceGrant |
+| `k8s/metallb/` | 2 | MetalLB v0.14.5 native install + IPAddressPool + L2Advertisement |
+| `scripts/` | 4 | `apply.sh` (8 steps, applies config/apps/pdb/jobs/gateway/metallb), `teardown.sh` (0 residue), `verify.sh` (148 checks including Eviction API PDB proof & placement lab), `build-images.sh` |
 
 **Probe paths (split into 3 distinct endpoints):**
 

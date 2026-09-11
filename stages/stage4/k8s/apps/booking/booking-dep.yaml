@@ -14,12 +14,24 @@ spec:
         app: booking
         tier: public
     spec:
+      priorityClassName: apollo-airlines-app-critical
       serviceAccountName: booking
       terminationGracePeriodSeconds: 30
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: kubernetes.io/hostname
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector:
+            matchLabels:
+              app: booking
       containers:
         - name: booking
           image: apollo11/booking:latest
           imagePullPolicy: IfNotPresent
+          lifecycle:
+            preStop:
+              exec:
+                command: ["/bin/sh", "-c", "sleep 5"]
           ports:
             - containerPort: 8082
           env:
