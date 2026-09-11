@@ -1,212 +1,160 @@
 ---
-title: "Stage 2: Networking & Access — 5 Manifest Sets"
-description: "Same 10 components, 5 different ways to expose them — NodePort, Ingress, Ingress+dashboard, LoadBalancer+MetalLB, Gateway API+MetalLB."
+title: "Stage 2: Guidance — Networking & Edge Access"
+description: "Progressive networking ladder from internal ClusterIP and cross-namespace DNS to Envoy Gateway API on MetalLB."
 ---
 
-# Stage 2: Networking & Access
+# Stage 2: Guidance — Networking & Edge Access
 
-The workloads are the same in every set. What changes is **how traffic gets
-to them**. Each set is a self-contained, from-scratch deployment. Pick one,
-apply it, verify, tear down, move on.
+Stage 2 takes the single-namespace baseline from Stage 1 and establishes Kubernetes networking across two production namespaces:
+- `apollo-airlines-apps`: Backend microservices (`identity`, `flight`, `booking`, `search`, `notification`), databases, and Redis.
+- `apollo-airlines-ui`: Frontend web application (`frontend`).
 
-| Set | Access mechanism | Verify result |
-|-----|------------------|---------------|
-| 1. **Baseline** | `NodePort` (30080–30084) — no controller | 25/25 pass |
-| 2. **Ingress** | Traefik v3 Ingress + NodePort 30443 | 26/26 pass |
-| 3. **Ingress + dashboard** | Traefik v3 + Traefik dashboard via IngressRoute | 27/27 pass |
-| 4. **Ingress + MetalLB** | Traefik v3 + MetalLB L2 LoadBalancer | 26/26 pass |
-| 5. **Gateway API + MetalLB** | Envoy Gateway + MetalLB L2 LoadBalancer | 29/29 pass |
+Rather than duplicating full manifest suites, Stage 2 follows a progressive **5-substage ladder**. Workload Deployments and internal Service definitions remain stable; what evolves is **how traffic is discovered internally and routed from the outside edge**.
 
 ---
 
-## The progression
-
-Each set introduces **one new concept** on top of the previous:
+## The Networking Access Ladder
 
 ```
-Set 1               Set 2               Set 3                Set 4                 Set 5
-─────               ─────               ─────                ─────                 ─────
-NodePort            + Ingress           + Dashboard          + LoadBalancer        + Gateway API
-no controller       Traefik IngressClass Traefik api@internal  type=LoadBalancer      Envoy GatewayClass=eg
-host header         Host-based routing  IngressRoute to      MetalLB IP pool       GatewayClass + Gateway
-on direct pods      via Traefik DS      controller-internal   (L2) gives real IP     + EnvoyProxy + 6 HTTPRoutes
+Substage 1                 Substage 2            Substage 3                Substage 4             Substage 5
+──────────                 ──────────            ──────────                ──────────             ──────────
+ClusterIP & DNS     ──►    NodePort       ──►    Traefik Ingress    ──►    MetalLB LoadBalancer ──► Envoy Gateway API
+Internal FQDN              High NodePorts        Host routing              L2 ARP real IP         Gateway API CRDs
+Endpoints & Slices         30080–30084           Local TLS termination     Port 80 / 443          Canonical Baseline
 ```
 
-**Set 1** teaches the lowest layer — `Service type: NodePort`, kubelet routes
-to pods directly. No HTTP routing, no controller.
+| Substage | Mechanism | Protocol / Port | Learning Outcome |
+|---|---|---|---|
+| **01-internal-dns** | `Service type: ClusterIP` | Virtual internal IPs | CoreDNS FQDN resolution, `Endpoints` vs `EndpointSlice`, selector binding |
+| **02-nodeport** | `Service type: NodePort` | `localhost:30080–30084` | L4 host-to-container forwarding via `kube-proxy`, port target mapping |
+| **03-traefik-ingress-tls** | Traefik v3 IngressController | `*.apollo.local:30088 / 30443` | L7 Host routing, Ingress resources, wildcard TLS termination with Secrets |
+| **04-metallb** | MetalLB L2 + `type: LoadBalancer` | `*.apollo.local` on MetalLB IP | ARP-based external IP allocation in local clusters, elimination of high NodePorts |
+| **05-envoy-gateway** | Envoy Gateway v1.5.0 + MetalLB | `*.apollo.local` on MetalLB IP | Gateway API standard: GatewayClass, Gateway, HTTPRoute, cross-namespace ReferenceGrant |
 
-**Set 2** adds an L7 HTTP layer in front of plain NodePorts. One
-Traefik DaemonSet, one NodePort (30443), five Ingresses with `Host:`
-matching. The student sees how a single port becomes five services.
-
-**Set 3** keeps set 2's edge access and adds the Traefik dashboard
-behind it. The dashboard is served by Traefik's internal `api@internal`
-service — an IngressRoute routes `traefik.apollo.local` to it. Proves
-Ingress can route to non-Service backends.
-
-**Set 4** swaps the Traefik Service from `NodePort` to `LoadBalancer`
-and adds MetalLB in L2 mode. Now the user has a real cluster IP
-(172.18.0.50ish) on the docker network. The browser hits `*.apollo.local`
-directly — no NodePort mapping, no port-forward.
-
-**Set 5** swaps Traefik for Envoy Gateway (the new standard) on the
-same MetalLB IP. Introduces GatewayClass, Gateway, HTTPRoute,
-ReferenceGrant, and EnvoyProxy. The EnvoyProxy `envoyService.type:
-LoadBalancer` is what makes MetalLB do the work — no port-forward,
-no NodePort.
+> [!IMPORTANT]
+> **Envoy Gateway + MetalLB (Substage 5)** forms the **canonical access stack** that carries forward into Stage 3 and all subsequent stages. Traefik is a required transitional learning experience; Headless Services are introduced in Stage 3 alongside StatefulSets, and NetworkPolicies are deferred to Stage 8 where Calico enforcement makes them observable.
 
 ---
 
-## Layout (each set is the same shape)
+## Directory Structure
 
 ```
 stages/stage2/
-├── code/                        # shared source; includes booking/auth reliability backports
-├── set1-baseline/               # ← Set 1, NodePort
-├── set2-ingress/                # ← Set 2, Traefik + NodePort
-├── set3-traefik-dashboard/      # ← Set 3, Traefik + dashboard
-├── set4-metallb-traefik/        # ← Set 4, Traefik + MetalLB
-└── set5-envoy-gateway/          # ← Set 5, Envoy Gateway + MetalLB
-```
-
-Each `setN-*/` directory is self-contained:
-
-```
-setN-*/
-├── README.md                    # set-specific concepts and steps
+├── code/                        # Shared source code for Apollo Airlines services
 ├── k8s/
-│   ├── config/                   # 2 namespaces, configmap, secrets
-│   ├── serviceaccounts/          # 13 SAs (1 per workload + 3 init jobs)
-│   ├── networkpolicies/          # reference only — kindnet doesn't enforce
-│   ├── apps/                     # 6 app services + 4 infra + 4 headless SVCs
-│   ├── jobs/                     # 3 init DB jobs
-│   ├── ingress/   (sets 2, 3, 4) # Traefik DaemonSet + Ingresses (+ dashboard in set 3)
-│   ├── gateway/   (set 5)        # Envoy Gateway install + Gateway + HTTPRoutes
-│   └── metallb/   (sets 4, 5)    # MetalLB install + IP pool + L2 advertisement
+│   ├── config/                  # Namespaces (apps, ui), ConfigMaps, Secrets, ServiceAccounts
+│   ├── infra/                   # identity-db, flight-db, booking-db, redis (Deployments + ClusterIP)
+│   ├── jobs/                    # Idempotent database schema initialization Jobs
+│   ├── apps/                    # identity, flight, booking, search, notification, frontend
+│   └── substages/
+│       ├── 01-internal-dns/     # Substage 1: curl client & cross-namespace DNS inspection
+│       ├── 02-nodeport/         # Substage 2: NodePort service definitions (30080–30084)
+│       ├── 03-traefik-ingress-tls/ # Substage 3: Traefik DaemonSet, TLS secret generator, Ingresses
+│       ├── 04-metallb/          # Substage 4: MetalLB native manifest, IP pool, LoadBalancer Service
+│       └── 05-envoy-gateway/    # Substage 5: Envoy Gateway v1.5.0, Gateway, HTTPRoutes, ReferenceGrant
 └── scripts/
-    ├── apply.sh                  # build images, apply manifests in order
-    ├── teardown.sh               # delete namespaces + controller
-    ├── verify.sh                 # battery of checks (25-29 per set)
-    └── build-images.sh           # per-set frontend VITE_* URLs
+    ├── build-images.sh          # Builds all 6 application images and loads into kind
+    ├── apply.sh                 # Progressive deployment orchestrator (--substage 1-5)
+    ├── verify.sh                # Comprehensive 30+ check verification suite
+    └── teardown.sh              # Clean resource teardown and residue verification
 ```
 
 ---
 
-## Shared between all sets
+## Hands-On Lab Walkthrough
 
-### 2 namespaces
-- `apollo-airlines-apps` — identity, flight, booking, search, notification, identity-db, flight-db, booking-db, redis, init jobs
-- `apollo-airlines-ui`   — frontend
-
-### Hostnames (sets 2-5)
-- `frontend.apollo.local`
-- `identity.apollo.local`
-- `flight.apollo.local`
-- `booking.apollo.local`
-- `search.apollo.local`
-- `traefik.apollo.local` (set 3 only)
-
-### Headless Services for every DB
-- `identity-db-headless`, `flight-db-headless`, `booking-db-headless`, `redis-headless`
-- `clusterIP: None` — DNS returns pod IPs directly. Used in Stage 3 (StatefulSets).
-
-### ServiceAccounts
-- One SA per workload: identity, flight, booking, search, notification, frontend, identity-db, flight-db, booking-db, redis
-- Three more for the init jobs: init-identity-db, init-flight-db, init-booking-db
-- No `Role`/`RoleBinding` yet — those arrive in Stage 8 (Command Module, RBAC)
-
-### NetworkPolicies
-- Manifests are provided for reference under `k8s/networkpolicies/`
-- **NOT applied by `apply.sh`** — the default `kindnet` CNI does not enforce them
-- See [set 1 README](./set1-baseline/README.md#about-networkpolicies) for the full story
-
-### Frontend image rebuild
-The VITE\_\* env vars (frontend's API URLs) are baked at build time. Each
-set rebuilds the frontend image with its own URL pattern. Run `apply.sh`
-once and it handles both the build and the image load.
-
----
-
-## Set-by-set summary
-
-### [Set 1: Baseline (NodePort)](./set1-baseline/README.md)
-**Access pattern:** 5 NodePort services (30080-30084), hit directly from host.
-**Teaches:** Namespace isolation, FQDN service discovery, Headless Service,
-ServiceAccount, NetworkPolicy (as reference).
-
-### [Set 2: Traefik Ingress](./set2-ingress/README.md)
-**Access pattern:** Traefik v3 IngressController (DaemonSet on control-plane)
-listens on NodePort 30443. Host header routing.
-**Teaches:** `Ingress` resource, `IngressClass`, controller selection
-(cluster-scoped, watches Ingresses, creates Traefik config).
-
-### [Set 3: Traefik + dashboard](./set3-traefik-dashboard/README.md)
-**Access pattern:** Same edge access as Set 2; the Traefik dashboard
-itself is exposed at `traefik.apollo.local:30443` via an IngressRoute
-to the controller's internal `api@internal` service.
-**Teaches:** IngressRoute (Traefik CRD), how Ingress can route to
-controller-internal services, what the static config does to Traefik.
-
-### [Set 4: Traefik + MetalLB](./set4-metallb-traefik/README.md)
-**Access pattern:** Same Traefik as Sets 2/3, but the Service is now
-`type: LoadBalancer` and MetalLB v0.14 assigns a real IP from
-172.18.0.50–100. No NodePort, no host-port mapping. The browser hits
-the IP directly via `/etc/hosts` or nip.io.
-**Teaches:** `Service type: LoadBalancer`, MetalLB L2 mode,
-IPAddressPool, L2Advertisement, ARP-based service discovery in kind.
-
-### [Set 5: Envoy Gateway + MetalLB](./set5-envoy-gateway/README.md)
-**Access pattern:** Envoy Gateway (controller + auto-created Envoy proxy)
-on top of MetalLB. EnvoyProxy sets `envoyService.type: LoadBalancer`
-which lets MetalLB assign a real IP. No NodePort, no port-forward.
-**Teaches:** GatewayClass, Gateway, HTTPRoute, ReferenceGrant (for
-cross-namespace frontend route), `parentRef.namespace`, EnvoyProxy.
-
----
-
-## Running them in sequence
+### 1. Build and Prepare Cluster
+Ensure your local `kind-apollo11` cluster is active, then build the service images:
 
 ```bash
-# Cluster (one-time, for any set)
-kind create cluster --name apollo11 --config stages/ignition/kind-config.yaml
-
-# Each set: apply, verify, teardown
-cd stages/stage2/set1-baseline && ./scripts/apply.sh && ./scripts/verify.sh && ./scripts/teardown.sh
-cd ../set2-ingress           && ./scripts/apply.sh && ./scripts/verify.sh && ./scripts/teardown.sh
-cd ../set3-traefik-dashboard && ./scripts/apply.sh && ./scripts/verify.sh && ./scripts/teardown.sh
-cd ../set4-metallb-traefik   && ./scripts/apply.sh && ./scripts/verify.sh && ./scripts/teardown.sh
-cd ../set5-envoy-gateway     && ./scripts/apply.sh && ./scripts/verify.sh && ./scripts/teardown.sh
+./stages/stage2/scripts/build-images.sh --cluster apollo11
 ```
 
-Sets 4 and 5 print a MetalLB-assigned IP at the end of `apply.sh`.
-Add it to `/etc/hosts` (or use the nip.io form the script prints)
-before running `verify.sh`.
+### 2. Walk Through the Substages
 
----
+Each substage adheres strictly to the **Learner Contract**: **Build → Inspect → Break → Recover → Explain**.
 
-## Notes on bundling
-
-The large `install.yaml` files for Envoy Gateway and MetalLB are
-**bundled in this repo** (offline-friendly, no internet required at
-apply time). To fetch a newer version instead:
-
+#### Substage 1: Internal Discovery & Cross-Namespace DNS
+Deploy the baseline workloads and inspect CoreDNS discovery:
 ```bash
-# Envoy Gateway (set 5)
-curl -o stages/stage2/set5-envoy-gateway/k8s/gateway/00-envoy-gateway-install.yaml \
-  https://github.com/envoyproxy/gateway/releases/download/v1.5.0/install.yaml
-
-# MetalLB (sets 4 and 5)
-curl -o stages/stage2/set4-metallb-traefik/k8s/metallb/00-metallb-native.yaml \
-  https://raw.githubusercontent.com/metallb/metallb/v0.14.5/config/manifests/metallb-native.yaml
+./stages/stage2/scripts/apply.sh --substage 1 --skip-build
 ```
+- **Inspect:** Run `kubectl get endpoints -n apollo-airlines-apps` and query services from `curl-client` via `<svc>.<ns>.svc.cluster.local`.
+- **Break:** Break the selector on `identity` service (`app: identity-broken`). Observe endpoints drop to `<none>`.
+- **Recover:** Restore selector `app: identity`. Endpoints reappear and traffic flows.
+- **Details:** See [`stages/stage2/k8s/substages/01-internal-dns/README.md`](k8s/substages/01-internal-dns/README.md).
 
-See [NOTES.md](NOTES.md) for the version-sweep results that chose v1.5.0
-for Envoy Gateway.
+#### Substage 2: NodePort External Access
+Expose services to the host machine via high NodePorts:
+```bash
+./stages/stage2/scripts/apply.sh --substage 2 --skip-build
+```
+- **Inspect:** Query `http://localhost:30083/healthz` (Identity) and `http://localhost:30080/` (Frontend).
+- **Break:** Change `targetPort` on `identity` service to `9999`. Observe connection failure.
+- **Recover:** Restore `targetPort: 8080`.
+- **Details:** See [`stages/stage2/k8s/substages/02-nodeport/README.md`](k8s/substages/02-nodeport/README.md).
+
+#### Substage 3: Traefik Ingress & Local TLS
+Consolidate traffic behind an L7 reverse proxy with TLS termination:
+```bash
+./stages/stage2/scripts/apply.sh --substage 3 --skip-build
+```
+- **Inspect:** Query `https://identity.apollo.local:30443/healthz` and verify TLS certificate subject (`CN=*.apollo.local`).
+- **Break:** Delete `apollo-tls-secret` in `apollo-airlines-apps`. Observe Traefik fallback to `TRAEFIK DEFAULT CERT`.
+- **Recover:** Re-run `generate-certs.sh`. Certificate subject restored.
+- **Details:** See [`stages/stage2/k8s/substages/03-traefik-ingress-tls/README.md`](k8s/substages/03-traefik-ingress-tls/README.md).
+
+#### Substage 4: MetalLB & LoadBalancer Services
+Eliminate high NodePorts by provisioning real IP addresses on the local Docker network:
+```bash
+./stages/stage2/scripts/apply.sh --substage 4 --skip-build
+```
+- **Inspect:** Verify Traefik's `EXTERNAL-IP` (e.g. `172.18.0.50`). Query standard ports 80 and 443 directly on the IP.
+- **Break:** Delete `apollo-pool` from `metallb-system`. Recreate Traefik service and observe `<pending>` EXTERNAL-IP.
+- **Recover:** Reapply `01-ip-pool.yaml`. External IP is allocated immediately.
+- **Details:** See [`stages/stage2/k8s/substages/04-metallb/README.md`](k8s/substages/04-metallb/README.md).
+
+#### Substage 5: Migration to Envoy Gateway API (Canonical Baseline)
+Decommission Traefik and transition to the modern Gateway API standard:
+```bash
+./stages/stage2/scripts/apply.sh --substage 5 --skip-build
+```
+- **Inspect:** Examine CRDs (`kubectl get crd | grep gateway`). Check Gateway status (`Accepted=True`, `Programmed=True`). Verify HTTPRoute attachments and access via the Envoy Proxy LoadBalancer IP.
+- **Break:** Patch the `frontend` HTTPRoute's backend port to `9999`. Inspect route status `ResolvedRefs=False` and HTTP 500 error.
+- **Recover:** Restore port `3000`. Route recovers to `Accepted=True`.
+- **Details:** See [`stages/stage2/k8s/substages/05-envoy-gateway/README.md`](k8s/substages/05-envoy-gateway/README.md).
 
 ---
 
-## What comes next (Stage 3)
+## Automated Verification
 
-StatefulSets with persistent volumes. The Headless Services created in
-Stage 2 will be wired to the StatefulSet `serviceName` field. Init jobs
-become init containers. PVCs (1Gi) per pod.
+Run the verification test suite at any point:
+```bash
+./stages/stage2/scripts/verify.sh
+```
+Or via the top-level test harness:
+```bash
+./test/stage2_test.sh
+```
+
+The script dynamically detects the active networking layer (Internal DNS, NodePort, Traefik, Traefik+MetalLB, or Envoy Gateway) and validates:
+1. Core namespaces and token automount security on all 13 ServiceAccounts.
+2. Readiness of all 10 workloads and completion of database bootstrap Jobs.
+3. Active endpoint slices and CoreDNS resolution.
+4. Layer-specific routing and TLS certificates.
+5. End-to-end user authentication and database queries.
+
+---
+
+## Teardown
+
+To cleanly remove all Stage 2 resources while retaining the underlying kind cluster:
+```bash
+./stages/stage2/scripts/teardown.sh
+```
+
+---
+
+## Next Stage: Stage 3 (Mission Data)
+
+In **Stage 3**, we replace ephemeral database Deployments with **StatefulSets**, mount persistent **1Gi PVCs**, introduce **Headless Services** for stable Pod network identities, and bootstrap schemas using PostgreSQL entrypoint hooks (`/docker-entrypoint-initdb.d/`). The **Envoy Gateway + MetalLB** access layer configured in Substage 5 carries over seamlessly as the ingress baseline.

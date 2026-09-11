@@ -1,0 +1,47 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: init-booking-db
+  namespace: apollo-airlines-apps
+spec:
+  backoffLimit: 3
+  template:
+    metadata:
+      labels:
+        app: init-booking-db
+    spec:
+      serviceAccountName: init-booking-db
+      containers:
+        - name: init
+          image: postgres:15-alpine
+          command:
+            - sh
+            - -c
+            - |
+              set -eu
+              attempt=0
+              until pg_isready -h booking-db -U postgres; do
+                attempt=$((attempt + 1))
+                if [ "${attempt}" -ge 30 ]; then
+                  echo "booking-db did not become ready" >&2
+                  exit 1
+                fi
+                echo "Waiting for booking-db... (${attempt}/30)"
+                sleep 2
+              done
+              psql -v ON_ERROR_STOP=1 -h booking-db -U postgres -d booking -f /init/init.sql
+              echo "booking DB init done"
+          env:
+            - name: PGPASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: apollo-airlines-secrets
+                  key: POSTGRES_PASSWORD
+          volumeMounts:
+            - name: init-script
+              mountPath: /init
+      volumes:
+        - name: init-script
+          configMap:
+            name: booking-init-script
+      restartPolicy: Never

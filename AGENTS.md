@@ -46,7 +46,7 @@ stage where the effect can be demonstrated.
 | Launchpad | Docker Compose | 10 components, stub code, local dev |
 | Ignition | kind cluster | First pod, kubectl basics, cluster architecture |
 | Stage 1 | Liftoff | All 10 components as Deployments, ConfigMaps, Secrets, Jobs (single-namespace baseline) |
-| Stage 2 | Guidance/N&C | **5 manifest sets** — Namespaces, DNS, ServiceAccounts, Headless Services, NetworkPolicies (reference), Ingress (Traefik), Ingress+dashboard, LoadBalancer+MetalLB, Gateway API (Envoy)+MetalLB. Each set introduces one new concept on top of the previous. |
+| Stage 2 | Guidance/N&C | Progressive 5-substage access ladder: ClusterIP & CoreDNS discovery, NodePort, Traefik Ingress + Local TLS, MetalLB LoadBalancer, and Envoy Gateway API baseline. Headless deferred to Stage 3; NetworkPolicies deferred to Stage 8. |
 | Stage 3 | Mission Data | StatefulSets + 1Gi PVCs for all 4 stateful workloads (3 PG + redis), schema bootstrap via Postgres `/docker-entrypoint-initdb.d/` ConfigMap mount, idempotent seed Jobs. **Envoy Gateway + MetalLB access stack from Stage 2 set 5 carries over and persists for later completed stages.** |
 | Stage 4 | Flight Control | Probes, resource limits, QoS, PodDisruptionBudget |
 | Stage 5 | Payload Integration | Helm chart (full access stack), Kustomize overlays (dev/staging/prod), GitHub Actions CI, **ArgoCD GitOps module** (AppProject + 3 Applications) |
@@ -294,54 +294,49 @@ uses `(flight_number, departure_time)` uniqueness and creates 186 rows across
 
 **Location:** `stages/stage2/`
 
-**Architecture:** Same 10 workloads, **5 self-contained manifest sets** that teach different edge access patterns. Each set introduces **one new concept** on top of the previous. Workloads never change between sets — only the "edge" object does.
+**Architecture:** Same 10 workloads deployed across two namespaces (`apollo-airlines-apps` and `apollo-airlines-ui`), organized into a **5-substage progressive access ladder**. Workload Deployments and ClusterIP Services remain uniform; each substage introduces one new edge-routing mechanism following the learner contract (**Build → Inspect → Break → Recover → Explain**).
 
-| Set | Concept | Access | Verify |
+| Substage | Mechanism | Protocol / Port | Verify Result |
 |---|---|---|---|
-| `set1-baseline` | `Service type: NodePort` (no controller) | `localhost:30080–30084` | 25/25 pass |
-| `set2-ingress` | Traefik v3 Ingress + `Host:`-based routing | `*.apollo.local:30443` | 26/26 pass |
-| `set3-traefik-dashboard` | Traefik dashboard via `IngressRoute` → `api@internal` | `traefik.apollo.local:30443` | 27/27 pass |
-| `set4-metallb-traefik` | `Service type: LoadBalancer` + MetalLB L2 (real IP, no NodePort) | `*.apollo.local` on MetalLB IP | 26/26 pass |
-| `set5-envoy-gateway` | Envoy Gateway API (GatewayClass, Gateway, HTTPRoute, ReferenceGrant, EnvoyProxy) on MetalLB | `*.apollo.local` on MetalLB IP | 29/29 pass |
+| `01-internal-dns` | `Service type: ClusterIP` | Virtual internal IPs | 46/46 pass |
+| `02-nodeport` | `Service type: NodePort` | `localhost:30080–30084` | 48/48 pass |
+| `03-traefik-ingress-tls` | Traefik v3 Ingress + Local TLS | `*.apollo.local:30080 / 30443` | 49/49 pass |
+| `04-metallb` | MetalLB L2 + `type: LoadBalancer` | `*.apollo.local` on MetalLB IP | 46/46 pass |
+| `05-envoy-gateway` | Envoy Gateway v1.5.0 + MetalLB | `*.apollo.local` on MetalLB IP | 57/57 pass |
 
-**Namespaces (2, not 3):**
+**Namespaces (2):**
 - `apollo-airlines-apps` — identity, flight, booking, search, notification, identity-db, flight-db, booking-db, redis, init jobs
 - `apollo-airlines-ui` — frontend
 
-(Original plan had 3 namespaces with infra split out. Collapsed to 2 to avoid
-init-job-namespace-mismatch bugs and keep DB hostnames short
-e.g. `identity-db` instead of `identity-db.apollo-airlines-infra.svc.cluster.local`.)
-
-**Per-set layout (each set is self-contained, ~30–50 files):**
+**Progressive layout:**
 ```
-setN-*/
-├── README.md                # set-specific concepts, apply/teardown/verify
+stages/stage2/
+├── code/                        # shared source; includes booking/auth reliability backports
 ├── k8s/
-│   ├── config/              # 2 namespaces, configmap, secrets
-│   ├── serviceaccounts/     # 13 SAs (1 per workload + 3 init jobs)
-│   ├── networkpolicies/     # reference only — kindnet does NOT enforce
-│   ├── apps/                # 6 app services + 4 infra + 4 headless SVCs
-│   ├── jobs/                # 3 init DB jobs (sets 1–4); 3 seed jobs (set 5)
-│   ├── ingress/   (sets 2,3,4) # Traefik DaemonSet + Ingresses (+ dashboard in set 3)
-│   ├── gateway/   (set 5)        # Envoy Gateway install + GatewayClass + Gateway + HTTPRoutes
-│   └── metallb/   (sets 4,5)    # MetalLB install + IP pool + L2 advertisement
+│   ├── config/                  # 2 namespaces, configmap, secrets, 13 serviceaccounts
+│   ├── infra/                   # identity-db, flight-db, booking-db, redis (ClusterIP baseline)
+│   ├── jobs/                    # 3 idempotent init DB jobs
+│   ├── apps/                    # 6 app services (identity, flight, booking, search, notification, frontend)
+│   └── substages/
+│       ├── 01-internal-dns/     # Substage 1: curl client & cross-namespace DNS inspection
+│       ├── 02-nodeport/         # Substage 2: NodePort service definitions (30080–30084)
+│       ├── 03-traefik-ingress-tls/ # Substage 3: Traefik DaemonSet, TLS cert generator, Ingresses
+│       ├── 04-metallb/          # Substage 4: MetalLB native manifest, IP pool, LB Service
+│       └── 05-envoy-gateway/    # Substage 5: Envoy Gateway v1.5.0, Gateway, HTTPRoutes, ReferenceGrant
 └── scripts/
-    ├── apply.sh             # build images + apply manifests in order
-    ├── teardown.sh          # delete namespaces + controllers
-    ├── verify.sh            # 25–29 checks per set
-    └── build-images.sh      # per-set frontend VITE_* URLs (baked at build)
+    ├── apply.sh                 # progressive orchestrator (--substage 1-5, default 5)
+    ├── teardown.sh              # deletes namespaces + controllers, verifies 0 residue
+    ├── verify.sh                # 46–57 dynamic checks per active stack
+    └── build-images.sh          # builds all 6 images and loads into kind
 ```
 
-**Hostnames (sets 2–5):** `frontend.apollo.local`, `identity.apollo.local`,
-`flight.apollo.local`, `booking.apollo.local`, `search.apollo.local`
-(set 3 also has `traefik.apollo.local`).
+**Hostnames (substages 3–5):** `frontend.apollo.local`, `identity.apollo.local`,
+`flight.apollo.local`, `booking.apollo.local`, `search.apollo.local`.
 
-**Headless Services:** `identity-db-headless`, `flight-db-headless`,
-`booking-db-headless`, `redis-headless` (`clusterIP: None`) — wired to
-StatefulSets in Stage 3.
+**Headless Services:** Deferred to Stage 3 when StatefulSets consume them.
 
 **ServiceAccounts:** 13 SAs (identity, flight, booking, search, notification,
-frontend, identity-db, flight-db, booking-db, redis + 3 init job SAs). No
+frontend, identity-db, flight-db, booking-db, redis + 3 init job SAs with `automountServiceAccountToken: false`). No
 `Role`/`RoleBinding` yet — those arrive in Stage 8.
 
 **NetworkPolicies:** Manifests provided for reference

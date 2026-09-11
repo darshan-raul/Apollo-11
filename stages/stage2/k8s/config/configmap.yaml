@@ -1,0 +1,35 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: apollo-airlines-config
+  namespace: apollo-airlines-apps
+data:
+  NS_APPS: "apollo-airlines-apps"
+  NS_UI: "apollo-airlines-ui"
+  PORT_IDENTITY: "8080"
+  PORT_FLIGHT: "8081"
+  PORT_BOOKING: "8082"
+  PORT_SEARCH: "8083"
+  PORT_NOTIFICATION: "8084"
+  PORT_FRONTEND: "3000"
+  IDENTITY_DB: "identity"
+  FLIGHT_DB: "flight"
+  BOOKING_DB: "booking"
+  FLIGHT_SERVICE_URL: "http://flight:8081"
+  IDENTITY_SERVICE_URL: "http://identity:8080"
+  NOTIFICATION_SERVICE_URL: "http://notification:8084"
+  REDIS_URL: "redis://redis:6379"
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: apollo-airlines-config
+  namespace: apollo-airlines-ui
+data:
+  NS_APPS: "apollo-airlines-apps"
+  NS_UI: "apollo-airlines-ui"
+  PORT_FRONTEND: "3000"
+  VITE_IDENTITY_URL: "http://identity.apollo-airlines-apps.svc.cluster.local:8080"
+  VITE_FLIGHT_URL: "http://flight.apollo-airlines-apps.svc.cluster.local:8081"
+  VITE_BOOKING_URL: "http://booking.apollo-airlines-apps.svc.cluster.local:8082"
+  VITE_SEARCH_URL: "http://search.apollo-airlines-apps.svc.cluster.local:8083"

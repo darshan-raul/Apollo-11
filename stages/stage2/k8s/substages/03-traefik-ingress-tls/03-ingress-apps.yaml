@@ -1,0 +1,91 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: identity
+  namespace: apollo-airlines-apps
+spec:
+  ingressClassName: traefik
+  tls:
+    - hosts:
+        - identity.apollo.local
+      secretName: apollo-tls-secret
+  rules:
+    - host: identity.apollo.local
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: identity
+                port:
+                  number: 8080
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: flight
+  namespace: apollo-airlines-apps
+spec:
+  ingressClassName: traefik
+  tls:
+    - hosts:
+        - flight.apollo.local
+      secretName: apollo-tls-secret
+  rules:
+    - host: flight.apollo.local
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: flight
+                port:
+                  number: 8081
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: booking
+  namespace: apollo-airlines-apps
+spec:
+  ingressClassName: traefik
+  tls:
+    - hosts:
+        - booking.apollo.local
+      secretName: apollo-tls-secret
+  rules:
+    - host: booking.apollo.local
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: booking
+                port:
+                  number: 8082
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: search
+  namespace: apollo-airlines-apps
+spec:
+  ingressClassName: traefik
+  tls:
+    - hosts:
+        - search.apollo.local
+      secretName: apollo-tls-secret
+  rules:
+    - host: search.apollo.local
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: search
+                port:
+                  number: 8083
