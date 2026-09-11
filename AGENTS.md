@@ -415,18 +415,16 @@ both build and kind load.
 
 | Group | Files | What |
 |---|---|---|
-| `k8s/config/` | 3 | Namespaces, ConfigMap, Secret (verbatim from set 4) |
-| `k8s/serviceaccounts/` | 1 | 13 SAs (verbatim from set 4) |
-| `k8s/networkpolicies/` | 16 | Reference only (verbatim from set 4) |
+| `k8s/config/` | 4 | Namespaces, ConfigMap, Secret, 13 ServiceAccounts (automount disabled) |
 | `k8s/apps/identity-db/` | 4 | `*-sts.yaml` (StatefulSet + 1Gi VCT + init SQL mounted at `/docker-entrypoint-initdb.d`), `*-svc.yaml` (ClusterIP), `*-svc-headless.yaml`, `*-init-script.yaml` (ConfigMap) |
 | `k8s/apps/flight-db/` | 4 | same shape (UNIQUE on `(flight_number, departure_time)` so the same flight can fly daily) |
 | `k8s/apps/booking-db/` | 4 | same shape |
 | `k8s/apps/redis/` | 3 | `redis-sts.yaml` (with AOF enabled), `redis-svc.yaml`, `redis-svc-headless.yaml` |
 | `k8s/apps/{identity,flight,booking,search,notification,frontend}/` | 12 | Unchanged Deployment + Service |
 | `k8s/jobs/` | 6 | 3 × `seed-*.yaml` Jobs + 3 × `*-db-seed` ConfigMaps (idempotent `ON CONFLICT DO NOTHING`) |
-| `k8s/gateway/` | 10 | Verbatim from Stage 2 set 5 (Envoy Gateway v1.5.0 install + GatewayClass + Gateway + 6 HTTPRoutes + ReferenceGrant) |
-| `k8s/metallb/` | 2 | Verbatim from Stage 2 set 5 (install + IPAddressPool + L2Advertisement) |
-| `scripts/` | 4 | `apply.sh` (preflight + 10 numbered steps, waits for StatefulSets before jobs), `teardown.sh` (deletes namespaces + Gateway + controllers, ordered to avoid webhook hangs), `verify.sh` (53 checks), `build-images.sh` |
+| `k8s/gateway/` | 11 | Envoy Gateway v1.5.0 install + GatewayClass + EnvoyProxy + Gateway + 6 HTTPRoutes + ReferenceGrant |
+| `k8s/metallb/` | 2 | MetalLB v0.14.5 native install + IPAddressPool + L2Advertisement |
+| `scripts/` | 4 | `apply.sh` (preflight + 7 numbered steps, waits for StatefulSets and Gateway programming), `teardown.sh` (deletes namespaces + Gateway + controllers with 0 residue), `verify.sh` (68 checks including reversible failure experiment), `build-images.sh` |
 
 **Storage:** `storageClassName` is **intentionally omitted** from `volumeClaimTemplates` — uses kind's default `local-path` StorageClass. PVCs are `ReadWriteOnce, 1Gi`. PVs are node-local on the kind worker. Reclaim policy is `Delete` (default), so deleting the PVC reclaims the local-path volume.
 

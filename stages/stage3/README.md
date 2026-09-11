@@ -19,7 +19,7 @@ MetalLB) is unchanged.
 | **Workloads changed** | 4 (3 PostgreSQL + redis) |
 | **Workloads unchanged** | 6 (all app Deployments, frontend, gateway, MetalLB) |
 | **Code changes** | None (app code doesn't know or care about Deployment vs StatefulSet) |
-| **Verify target** | **53/53 checks pass** |
+| **Verify target** | **68/68 checks pass** |
 
 ---
 
@@ -105,8 +105,9 @@ kubectl exec -n apollo-airlines-apps identity-db-0 -- \
 | **App Deployments** | Unchanged | Unchanged (still connect via `identity-db`, `flight-db`, etc.) |
 | **Envoy Gateway + MetalLB** | Stage 2 set 5 access stack | **Carried over verbatim** — persists for all later stages |
 | **Namespaces** | 2 (apps, ui) | 2 (apps, ui) |
-| **ServiceAccounts / NetworkPolicies** | 13 / 16 (reference) | 13 / 16 (reference, unchanged) |
-| **Code (`stages/stage3/code/`)** | Snapshot of stage 2 code | Snapshot of stage 2 code (vite.config + nginx.conf synced) |
+| **ServiceAccounts** | 13 SAs (automount disabled) | 13 SAs (automount disabled) |
+| **NetworkPolicies** | Deferred to Stage 8 (Calico) | Deferred to Stage 8 (Calico) |
+| **Code (`stages/stage3/code/`)** | Snapshot of stage 2 code | Snapshot of stage 2 code (shared contracts synced) |
 
 ---
 
@@ -116,24 +117,23 @@ kubectl exec -n apollo-airlines-apps identity-db-0 -- \
 stages/stage3/
 ├── README.md                          # this file
 ├── code/                              # snapshot of stages/stage2/code/  (no changes)
+├── scripts/                           # apply.sh, verify.sh, teardown.sh, build-images.sh
 └── k8s/
-    ├── config/                        # 2 namespaces, configmap, secrets (verbatim from Stage 2 set 5)
-    ├── serviceaccounts/accounts.yaml  # 13 SAs (verbatim from Stage 2 set 5)
-    ├── networkpolicies/               # 16 manifests (reference only, unchanged)
+    ├── config/                        # 2 namespaces, configmap, secrets, 13 serviceaccounts
     ├── apps/
     │   ├── identity-db/               # NEW: sts + svc + headless + init-script (entrypoint hook, not init container)
     │   ├── flight-db/                 # NEW: same shape (UNIQUE (flight_number, departure_time))
     │   ├── booking-db/                # NEW: same shape
     │   ├── redis/                     # NEW: sts + svc + headless (no schema)
-    │   ├── identity/                  # unchanged Deployment + Service
-    │   ├── flight/                    # unchanged
-    │   ├── booking/                   # unchanged
-    │   ├── search/                    # unchanged
-    │   ├── notification/              # unchanged
-    │   └── frontend/                  # unchanged
+    │   ├── identity/                  # Deployment + Service
+    │   ├── flight/                    # Deployment + Service
+    │   ├── booking/                   # Deployment + Service
+    │   ├── search/                    # Deployment + Service
+    │   ├── notification/              # Deployment + Service
+    │   └── frontend/                  # Deployment + Service
     ├── jobs/                          # NEW: 3 seed-* Jobs + 3 seed ConfigMaps
-    ├── gateway/                       # unchanged (Envoy Gateway + HTTPRoutes)
-    └── metallb/                       # unchanged
+    ├── gateway/                       # Envoy Gateway + EnvoyProxy + HTTPRoutes + ReferenceGrant
+    └── metallb/                       # MetalLB L2 Pool + Advertisement
 ```
 
 ---
@@ -399,27 +399,19 @@ curl -H 'Host: frontend.apollo.local' http://frontend.172-18-0-50.nip.io/
 ./scripts/verify.sh
 ```
 
-**Expected: 53/53 checks pass.** Coverage:
+**Expected: 68/68 checks pass.** Coverage:
 
-| Group | Checks |
-|---|---|
-| Namespaces | 4 (apps, ui, envoy-gateway-system, metallb-system) |
-| StatefulSets | 4 (all 1/1 ready) |
-| StatefulSet pods | 4 (all Ready) |
-| PVCs | 4 (all Bound) |
-| PVs | ≥ 4 Bound |
-| Headless SVCs | 4 (all `clusterIP: None`) |
-| Headless DNS | 4 (each headless name resolves to a pod IP) |
-| ClusterIP SVCs | 4 (for app connections) |
-| App Deployments | 6 (all ≥ 2/2 ready) |
-| MetalLB controller | 1 |
-| Envoy Gateway controller + proxy | 2 |
-| Seed jobs | 3 (all succeeded) |
-| IPAddressPool + Gateway Programmed | 2 |
-| HTTPRoutes | 1 (count ≥ 6 with parents) |
-| Smoke tests | 4 (identity, flight, frontend, login) |
-| Seed data present | 3 (users, airports, flights row counts) |
-| App→Redis DNS | 1 |
+| Group | Checks | Description |
+|---|---|---|
+| Core Namespaces | 4 | `apollo-airlines-apps`, `apollo-airlines-ui`, `envoy-gateway-system`, `metallb-system` |
+| ServiceAccounts | 13 | Token automount disabled on all 13 identities |
+| StatefulSets & Pods | 8 | 4 StatefulSets (1/1 ready) + 4 pods Ready |
+| Storage & PVCs | 5 | 4 PVCs (1Gi, Bound, ReadWriteOnce) + Bound PersistentVolumes |
+| Headless Services & DNS | 8 | 4 headless services (`clusterIP: None`) + CoreDNS resolving to direct pod IPs |
+| App Deployments & Jobs | 9 | 6 Deployments (2/2 ready) + 3 seed jobs completed |
+| Database Seed Integrity | 3 | Seed row counts (2 users, 6 airports, 186 flights across 31 days) |
+| Envoy Gateway & MetalLB | 14 | GatewayClass, Gateway, 6 HTTPRoutes, MetalLB IP, and HTTP 200 checks |
+| Flagship Workflow & Survival | 7 | Passenger auth, flight search, booking creation, pod termination, and data persistence proof |
 
 ---
 

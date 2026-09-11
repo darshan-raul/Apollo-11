@@ -11,7 +11,7 @@ CREATE TABLE IF NOT EXISTS airports (
 
 CREATE TABLE IF NOT EXISTS flights (
     id               UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    flight_number    VARCHAR(20) UNIQUE NOT NULL,
+    flight_number    VARCHAR(20) NOT NULL,
     origin           VARCHAR(5) REFERENCES airports(code),
     destination      VARCHAR(5) REFERENCES airports(code),
     departure_time   TIMESTAMP NOT NULL,
@@ -20,7 +20,8 @@ CREATE TABLE IF NOT EXISTS flights (
     available_seats  INT NOT NULL,
     status           VARCHAR(20) DEFAULT 'SCHEDULED',
     created_at       TIMESTAMP DEFAULT NOW(),
-    updated_at       TIMESTAMP DEFAULT NOW()
+    updated_at       TIMESTAMP DEFAULT NOW(),
+    UNIQUE (flight_number, departure_time)
 );
 
 -- Seed airports (deterministic UUIDs)
@@ -52,8 +53,8 @@ SELECT
     flight_number,
     origin,
     destination,
-    (CURRENT_DATE + n * INTERVAL '1 day' + TIME '08:00:00')::timestamp,
-    (CURRENT_DATE + n * INTERVAL '1 day' + TIME '14:30:00')::timestamp,
+    (CURRENT_DATE + n * INTERVAL '1 day' + '08:00:00'::time)::timestamp,
+    (CURRENT_DATE + n * INTERVAL '1 day' + '14:30:00'::time)::timestamp,
     total_capacity,
     total_capacity,
     'SCHEDULED'
@@ -66,4 +67,4 @@ FROM (VALUES
     ('AA401', 'DEL', 'JFK', 280)
 ) AS f(flight_number, origin, destination, total_capacity)
 CROSS JOIN generate_series(1, 30) AS n
-ON CONFLICT (flight_number) DO NOTHING;
+ON CONFLICT (flight_number, departure_time) DO NOTHING;
